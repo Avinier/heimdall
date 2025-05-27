@@ -1,11 +1,17 @@
 import re
 import json
+import sys
 from typing import List, Dict, Any, Optional
+import requests
+import time
+
 from playwright.sync_api import Page
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
+from webproxy import WebProxy
 
+#AVINIERNOTES: this file handles the reconnaisance phase of the attack.
 class PageDataExtractor:
     """
     Extracts comprehensive page data from a Playwright page for security analysis.
@@ -13,12 +19,6 @@ class PageDataExtractor:
     """
     
     def __init__(self, playwright_page: Page):
-        """
-        Initialize the extractor with a Playwright page object.
-        
-        Args:
-            playwright_page: Active Playwright page object
-        """
         self.page = playwright_page
         self.current_url = self.page.url
         self.html_content = ""
@@ -56,30 +56,24 @@ class PageDataExtractor:
         ]
     
     def extract_page_data(self) -> str:
-        """
-        Extract all page data and return formatted string for planner.
         
-        Returns:
-            Formatted page data string
-        """
         try:
             # Extract HTML content
             self._extract_html_content()
-            
             # Extract links
             self._extract_links()
-            
             # Extract forms
             self._extract_forms()
-            
             # Extract sensitive strings
             self._extract_sensitive_strings()
-            
             # Extract request/response data
             self._extract_request_response_data()
-            
             # Extract API calls
             self._extract_api_calls()
+            # Follow redirects and analyze additional pages
+            self._follow_redirects()
+            # Perform reconnaissance
+            self._perform_reconnaissance()
             
             # Format and return the data
             return self._format_page_data()
@@ -89,7 +83,6 @@ class PageDataExtractor:
             return self._get_fallback_data()
     
     def _extract_html_content(self):
-        """Extract and summarize HTML content."""
         try:
             # Get the full HTML content
             full_html = self.page.content()
@@ -97,35 +90,202 @@ class PageDataExtractor:
             # Parse with BeautifulSoup for better processing
             soup = BeautifulSoup(full_html, 'html.parser')
             
-            # Remove script and style elements for cleaner summary
-            for script in soup(["script", "style"]):
-                script.decompose()
+            # Security-focused HTML summarization strategy
+            security_summary = self._create_html_summary(soup, full_html)
             
-            # Get text content and limit size for summary
-            text_content = soup.get_text()
-            
-            # Create a summarized version of HTML
-            # Keep important structural elements but remove excessive content
-            summary_soup = BeautifulSoup(full_html, 'html.parser')
-            
-            # Remove large text blocks but keep structure
-            for element in summary_soup.find_all(text=True):
-                if len(str(element).strip()) > 100:
-                    element.replace_with(str(element)[:100] + "...")
-            
-            # Limit the overall HTML size
-            summarized_html = str(summary_soup)
-            if len(summarized_html) > 2000:
-                summarized_html = summarized_html[:2000] + "..."
-            
-            self.html_content = summarized_html
+            self.html_content = security_summary
             
         except Exception as e:
             print(f"Error extracting HTML content: {str(e)}")
             self.html_content = "<html><body>Error extracting HTML content</body></html>"
     
+    def _create_html_summary(self, soup: BeautifulSoup, full_html: str) -> str:
+        try:
+            # Create a minimal summary structure
+            summary_parts = []
+            
+            # 1. Critical HEAD elements (very selective)
+            head_elements = soup.head if soup.head else soup.find('head')
+            if head_elements:
+                # Only security-critical meta tags
+                security_metas = []
+                for meta in head_elements.find_all('meta'):
+                    name = meta.get('name', '').lower()
+                    http_equiv = meta.get('http-equiv', '').lower()
+                    content = meta.get('content', '')
+                    
+                    if any(keyword in name for keyword in ['csrf', 'security', 'csp']) or \
+                       any(keyword in http_equiv for keyword in ['content-security-policy', 'x-frame-options']):
+                        security_metas.append(str(meta))
+                
+                if security_metas:
+                    summary_parts.append(f"<head>{''.join(security_metas[:3])}</head>")
+                
+                # Only external scripts (not inline content)
+                external_scripts = []
+                for script in head_elements.find_all('script'):
+                    if script.get('src'):
+                        src = script['src']
+                        # Only include if it looks security-relevant or is a major library
+                        if any(keyword in src.lower() for keyword in ['auth', 'security', 'csrf', 'jquery', 'react', 'angular', 'vue']):
+                            external_scripts.append(f'<script src="{src}"></script>')
+                
+                if external_scripts:
+                    summary_parts.extend(external_scripts[:5])  # Max 5 scripts
+            
+            # 2. ALL forms (but condensed format)
+            forms = soup.find_all('form')
+            if forms:
+                form_summaries = []
+                for form in forms[:10]:  # Max 10 forms
+                    action = form.get('action', '')
+                    method = form.get('method', 'GET').upper()
+                    
+                    # Get input summary (just types and names)
+                    inputs = []
+                    for inp in form.find_all(['input', 'select', 'textarea']):
+                        inp_type = inp.get('type', inp.name)
+                        inp_name = inp.get('name', '')
+                        if inp_name:
+                            inputs.append(f'{inp_type}:{inp_name}')
+                    
+                    # Check for CSRF tokens
+                    csrf_token = form.find('input', attrs={'name': re.compile(r'csrf|token', re.I)})
+                    csrf_info = ' [CSRF]' if csrf_token else ''
+                    
+                    form_summary = f'<form action="{action}" method="{method}"{csrf_info}>{",".join(inputs[:10])}</form>'
+                    form_summaries.append(form_summary)
+                
+                summary_parts.extend(form_summaries)
+            
+            # 3. Authentication/Admin links (very selective)
+            auth_links = []
+            auth_patterns = ['login', 'admin', 'auth', 'signin', 'dashboard', 'panel']
+            
+            for link in soup.find_all('a', href=True)[:50]:  # Check first 50 links only
+                href = link.get('href', '').lower()
+                text = link.get_text().lower().strip()
+                
+                if any(pattern in href or pattern in text for pattern in auth_patterns):
+                    auth_links.append(f'<a href="{link["href"]}">{text[:20]}</a>')
+                    if len(auth_links) >= 5:  # Max 5 auth links
+                        break
+            
+            if auth_links:
+                summary_parts.extend(auth_links)
+            
+            # 4. API endpoints (extract from various sources)
+            api_endpoints = set()
+            
+            # From script content (quick scan)
+            for script in soup.find_all('script'):
+                if script.string:
+                    content = script.string
+                    # Quick regex for common API patterns
+                    api_matches = re.findall(r'["\']([^"\']*(?:/api/|\.json|graphql)[^"\']*)["\']', content)
+                    for match in api_matches[:5]:  # Max 5 per script
+                        if len(match) > 5 and len(match) < 100:  # Reasonable length
+                            api_endpoints.add(match)
+            
+            # From data attributes
+            for elem in soup.find_all(attrs={'data-url': True, 'data-api': True, 'data-endpoint': True}):
+                for attr in ['data-url', 'data-api', 'data-endpoint']:
+                    value = elem.get(attr)
+                    if value and ('/api/' in value or '.json' in value):
+                        api_endpoints.add(value)
+            
+            if api_endpoints:
+                api_list = list(api_endpoints)[:8]  # Max 8 API endpoints
+                summary_parts.append(f'<!-- APIs: {", ".join(api_list)} -->')
+            
+            # 5. Error/Alert elements (condensed)
+            error_elements = []
+            error_selectors = ['.error', '.alert', '.warning', '#error', '#alert']
+            
+            for selector in error_selectors:
+                elements = soup.select(selector)
+                for elem in elements[:2]:  # Max 2 per selector type
+                    text = elem.get_text().strip()[:100]  # Max 100 chars
+                    if text:
+                        error_elements.append(f'<div class="error-msg">{text}</div>')
+                        if len(error_elements) >= 3:  # Max 3 total
+                            break
+                if len(error_elements) >= 3:
+                    break
+            
+            if error_elements:
+                summary_parts.extend(error_elements)
+            
+            # 6. Security-relevant comments (very selective)
+            security_comments = []
+            comments = soup.find_all(string=lambda text: isinstance(text, str) and '<!--' in str(text))
+            
+            for comment in comments[:20]:  # Check first 20 comments only
+                comment_text = str(comment).lower()
+                if any(keyword in comment_text for keyword in ['todo', 'fixme', 'hack', 'admin', 'password', 'key', 'token', 'debug']):
+                    clean_comment = str(comment).strip()[:150]  # Max 150 chars
+                    security_comments.append(clean_comment)
+                    if len(security_comments) >= 3:  # Max 3 comments
+                        break
+            
+            if security_comments:
+                summary_parts.append(f'<!-- Security comments: {" | ".join(security_comments)} -->')
+            
+            # 7. Page structure (minimal)
+            title = soup.find('title')
+            title_text = title.get_text() if title else 'No title'
+            
+            # Combine everything into a minimal HTML structure
+            summary_html = f'''<html>
+                <head><title>{title_text[:50]}</title></head>
+                <body>
+                {chr(10).join(summary_parts)}
+                </body>
+                </html>'''
+            
+            # Final size check - be aggressive about trimming
+            if len(summary_html) > 2500:  # Much stricter limit
+                # Truncate but preserve structure
+                summary_html = summary_html[:2500]
+                # Ensure it ends properly
+                if '</body>' not in summary_html[-50:]:
+                    summary_html += '\n<!-- Truncated -->\n</body></html>'
+            
+            return summary_html
+            
+        except Exception as e:
+            print(f"Error creating security-focused summary: {str(e)}")
+            return self._create_html_fallback(soup)
+    
+    def _create_html_fallback(self, soup):
+        try:
+            title = soup.find('title')
+            title_text = title.get_text() if title else 'Unknown'
+            
+            # Just get forms and critical links
+            forms = soup.find_all('form')
+            form_count = len(forms)
+            
+            auth_links = []
+            for link in soup.find_all('a', href=True)[:20]:
+                href = link.get('href', '').lower()
+                if any(word in href for word in ['login', 'admin', 'auth']):
+                    auth_links.append(href)
+                    if len(auth_links) >= 3:
+                        break
+            
+            return f'''<html>
+                <head><title>{title_text[:30]}</title></head>
+                <body>
+                <!-- {form_count} forms found -->
+                <!-- Auth links: {", ".join(auth_links)} -->
+                </body>
+                </html>'''
+            
+        except Exception:
+            return "<html><body>Minimal page summary</body></html>"
+    
     def _extract_links(self):
-        """Extract all links from the page."""
         try:
             # Get all anchor tags with href attributes
             links_js = """
@@ -136,7 +296,7 @@ class PageDataExtractor:
                         href: link.href,
                         text: link.textContent.trim(),
                         target: link.target || '',
-                        rel: link.rel.join(' ') || ''
+                        rel: Array.from(link.rel).join(' ') || ''
                     });
                 });
                 return links;
@@ -180,7 +340,6 @@ class PageDataExtractor:
             self.links = []
     
     def _extract_forms(self):
-        """Extract all forms from the page."""
         try:
             forms_js = """
             () => {
@@ -253,7 +412,6 @@ class PageDataExtractor:
             self.forms = []
     
     def _extract_sensitive_strings(self):
-        """Extract potentially sensitive strings from the page."""
         try:
             # Get page text content
             page_text = self.page.evaluate("() => document.body.textContent || ''")
@@ -315,7 +473,6 @@ class PageDataExtractor:
             self.sensitive_strings = []
     
     def _extract_request_response_data(self):
-        """Extract current request and response information."""
         try:
             # Get current page URL and basic info
             self.request_data = {
@@ -359,7 +516,6 @@ class PageDataExtractor:
             self.response_data = {'status': 'unknown', 'url': self.current_url}
     
     def _extract_api_calls(self):
-        """Extract potential API calls and endpoints."""
         try:
             # Look for AJAX/fetch calls in JavaScript
             api_endpoints = set()
@@ -372,20 +528,56 @@ class PageDataExtractor:
                     if (script.textContent) {
                         scripts.push(script.textContent);
                     }
+                    // Also get external script sources
+                    if (script.src) {
+                        scripts.push('EXTERNAL_SCRIPT: ' + script.src);
+                    }
                 });
                 return scripts.join(' ');
             }
             """)
             
-            # Look for common API call patterns
+            # Enhanced API call patterns
             api_patterns = [
+                # Standard fetch/ajax patterns
                 r'fetch\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
                 r'\.get\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
                 r'\.post\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
                 r'\.put\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
                 r'\.delete\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
+                r'\.patch\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
                 r'ajax\s*\(\s*{[^}]*url\s*:\s*[\'"`]([^\'"`]+)[\'"`]',
-                r'XMLHttpRequest.*open\s*\(\s*[\'"`][^\'"`]+[\'"`]\s*,\s*[\'"`]([^\'"`]+)[\'"`]'
+                r'XMLHttpRequest.*open\s*\(\s*[\'"`][^\'"`]+[\'"`]\s*,\s*[\'"`]([^\'"`]+)[\'"`]',
+                
+                # Modern framework patterns
+                r'axios\.[a-z]+\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
+                r'http\.[a-z]+\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
+                r'request\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
+                
+                # GraphQL patterns
+                r'query\s*:\s*[\'"`]([^\'"`]*graphql[^\'"`]*)[\'"`]',
+                r'mutation\s*:\s*[\'"`]([^\'"`]*graphql[^\'"`]*)[\'"`]',
+                
+                # WebSocket patterns
+                r'WebSocket\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
+                r'socket\.io\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
+                
+                # API endpoint patterns in strings
+                r'[\'"`](/api/[a-zA-Z0-9_/\-\.]+)[\'"`]',
+                r'[\'"`](/v\d+/[a-zA-Z0-9_/\-\.]+)[\'"`]',
+                r'[\'"`]([^\'"`]*\.json)[\'"`]',
+                r'[\'"`]([^\'"`]*\.xml)[\'"`]',
+                r'[\'"`](/rest/[a-zA-Z0-9_/\-\.]+)[\'"`]',
+                r'[\'"`]([^\'"`]*graphql[^\'"`]*)[\'"`]',
+                
+                # External script sources
+                r'EXTERNAL_SCRIPT:\s*(https?://[^\s]+\.js)',
+                
+                # Configuration objects
+                r'baseURL\s*:\s*[\'"`]([^\'"`]+)[\'"`]',
+                r'apiUrl\s*:\s*[\'"`]([^\'"`]+)[\'"`]',
+                r'endpoint\s*:\s*[\'"`]([^\'"`]+)[\'"`]',
+                r'url\s*:\s*[\'"`]([^\'"`]+)[\'"`]',
             ]
             
             for pattern in api_patterns:
@@ -394,40 +586,420 @@ class PageDataExtractor:
                     if match.startswith('/') or match.startswith('http'):
                         api_endpoints.add(match)
             
-            # Look for API endpoints in HTML attributes
+            # Look for API endpoints in HTML attributes with more patterns
             html_content = self.page.content()
             html_api_patterns = [
                 r'data-url\s*=\s*[\'"`]([^\'"`]+)[\'"`]',
                 r'data-endpoint\s*=\s*[\'"`]([^\'"`]+)[\'"`]',
+                r'data-api\s*=\s*[\'"`]([^\'"`]+)[\'"`]',
                 r'action\s*=\s*[\'"`]([^\'"`]*api[^\'"`]*)[\'"`]',
-                r'href\s*=\s*[\'"`]([^\'"`]*api[^\'"`]*)[\'"`]'
+                r'href\s*=\s*[\'"`]([^\'"`]*api[^\'"`]*)[\'"`]',
+                r'src\s*=\s*[\'"`]([^\'"`]*\.json[^\'"`]*)[\'"`]',
+                r'content\s*=\s*[\'"`]([^\'"`]*api[^\'"`]*)[\'"`]',
             ]
             
             for pattern in html_api_patterns:
                 matches = re.findall(pattern, html_content, re.IGNORECASE)
                 for match in matches:
-                    if '/api/' in match or match.endswith('.json') or match.endswith('.xml'):
+                    if '/api/' in match or match.endswith('.json') or match.endswith('.xml') or 'graphql' in match:
                         api_endpoints.add(match)
+            
+            # Look for common API paths in window object and global variables
+            try:
+                global_vars = self.page.evaluate("""
+                () => {
+                    const vars = [];
+                    // Check window object for API-related properties
+                    for (let prop in window) {
+                        if (typeof window[prop] === 'string' && 
+                            (window[prop].includes('/api/') || 
+                             window[prop].includes('.json') || 
+                             window[prop].includes('graphql'))) {
+                            vars.push(window[prop]);
+                        }
+                    }
+                    
+                    // Check for common global config objects
+                    const configObjects = ['config', 'API_CONFIG', 'apiConfig', 'endpoints', 'API_ENDPOINTS'];
+                    configObjects.forEach(obj => {
+                        if (window[obj] && typeof window[obj] === 'object') {
+                            vars.push(JSON.stringify(window[obj]));
+                        }
+                    });
+                    
+                    return vars;
+                }
+                """)
+                
+                for var_content in global_vars:
+                    if isinstance(var_content, str):
+                        # Extract URLs from global variables
+                        url_matches = re.findall(r'https?://[^\s"\']+|/[a-zA-Z0-9_/\-\.]+', var_content)
+                        for url in url_matches:
+                            if '/api/' in url or url.endswith('.json') or 'graphql' in url:
+                                api_endpoints.add(url)
+                                
+            except Exception:
+                pass  # Continue if global variable extraction fails
             
             # Convert to list of dictionaries with more info
             self.api_calls = []
-            for endpoint in list(api_endpoints)[:15]:  # Limit to 15 endpoints
+            for endpoint in list(api_endpoints)[:25]:  # Increased limit to 25 endpoints
                 # Convert relative URLs to absolute
                 if endpoint.startswith('/'):
                     endpoint = urljoin(self.current_url, endpoint)
                 
+                # Determine likely HTTP method based on endpoint pattern
+                method = 'GET'  # Default
+                if any(word in endpoint.lower() for word in ['create', 'add', 'new', 'register', 'signup']):
+                    method = 'POST'
+                elif any(word in endpoint.lower() for word in ['update', 'edit', 'modify']):
+                    method = 'PUT'
+                elif any(word in endpoint.lower() for word in ['delete', 'remove']):
+                    method = 'DELETE'
+                
                 self.api_calls.append({
                     'endpoint': endpoint,
-                    'method': 'GET',  # Default assumption
-                    'type': 'discovered'
+                    'method': method,
+                    'type': 'discovered',
+                    'source': 'javascript_analysis'
                 })
             
         except Exception as e:
             print(f"Error extracting API calls: {str(e)}")
             self.api_calls = []
     
+    def _follow_redirects(self):
+        """Follow redirects and analyze additional pages for more comprehensive data."""
+        try:
+            print("Following redirects and analyzing additional pages...")
+            
+            # Common paths to check for redirects and additional content
+            common_paths = [
+                '/robots.txt',
+                '/sitemap.xml',
+                '/.well-known/security.txt',
+                '/api',
+                '/api/v1',
+                '/api/docs',
+                '/swagger',
+                '/graphql',
+                '/admin',
+                '/login',
+                '/dashboard'
+            ]
+            
+            base_url = f"{urlparse(self.current_url).scheme}://{urlparse(self.current_url).netloc}"
+            additional_findings = {
+                'redirects': [],
+                'accessible_paths': [],
+                'additional_apis': []
+            }
+            
+            for path in common_paths:
+                try:
+                    test_url = urljoin(base_url, path)
+                    
+                    # Use requests for quick checks (faster than Playwright for simple requests)
+                    response = requests.get(test_url, timeout=5, allow_redirects=False)
+                    
+                    if response.status_code in [200, 301, 302, 307, 308]:
+                        if response.status_code in [301, 302, 307, 308]:
+                            redirect_location = response.headers.get('Location', '')
+                            additional_findings['redirects'].append({
+                                'from': test_url,
+                                'to': redirect_location,
+                                'status': response.status_code
+                            })
+                            print(f"Found redirect: {test_url} -> {redirect_location}")
+                        else:
+                            additional_findings['accessible_paths'].append({
+                                'url': test_url,
+                                'status': response.status_code,
+                                'content_type': response.headers.get('content-type', ''),
+                                'content_length': len(response.content)
+                            })
+                            print(f"Found accessible path: {test_url}")
+                            
+                            # Check if it's an API endpoint
+                            if any(api_indicator in path for api_indicator in ['/api', '/graphql', 'swagger']):
+                                additional_findings['additional_apis'].append(test_url)
+                    
+                except requests.RequestException:
+                    continue  # Skip if request fails
+                except Exception:
+                    continue  # Skip any other errors
+            
+            # Store additional findings
+            self.redirect_data = additional_findings
+            
+        except Exception as e:
+            print(f"Error following redirects: {str(e)}")
+            self.redirect_data = {'redirects': [], 'accessible_paths': [], 'additional_apis': []}
+    
+    def _perform_reconnaissance(self):
+        """Perform comprehensive reconnaissance including subdomain enumeration and technology detection."""
+        try:
+            print("Performing reconnaissance...")
+            
+            self.recon_data = {
+                'subdomains': [],
+                'technologies': [],
+                'security_headers': {},
+                'dns_info': {}
+            }
+            
+            # Method 1: Subdomain Enumeration
+            self._enumerate_subdomains()
+            
+            # Method 2: Technology Detection
+            self._detect_technologies()
+            
+        except Exception as e:
+            print(f"Error during reconnaissance: {str(e)}")
+            self.recon_data = {'subdomains': [], 'technologies': [], 'security_headers': {}, 'dns_info': {}}
+    
+    def _enumerate_subdomains(self):
+        """Enumerate subdomains using common patterns and certificate transparency."""
+        try:
+            domain = urlparse(self.current_url).netloc
+            
+            # Remove www if present
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            
+            print(f"Enumerating subdomains for {domain}...")
+            
+            # Common subdomain patterns
+            common_subdomains = [
+                'www', 'api', 'admin', 'test', 'dev', 'staging', 'beta', 'demo',
+                'mail', 'ftp', 'blog', 'shop', 'store', 'support', 'help',
+                'docs', 'portal', 'app', 'mobile', 'secure', 'vpn', 'cdn',
+                'static', 'assets', 'media', 'images', 'files', 'download',
+                'login', 'auth', 'sso', 'oauth', 'api-v1', 'api-v2', 'v1', 'v2'
+            ]
+            
+            found_subdomains = []
+            
+            for subdomain in common_subdomains:
+                try:
+                    test_domain = f"{subdomain}.{domain}"
+                    test_url = f"https://{test_domain}"
+                    
+                    # Quick DNS resolution check
+                    response = requests.get(test_url, timeout=3, allow_redirects=False)
+                    
+                    if response.status_code < 400:  # Any successful response
+                        found_subdomains.append({
+                            'subdomain': test_domain,
+                            'status': response.status_code,
+                            'title': self._extract_title_from_response(response),
+                            'server': response.headers.get('server', ''),
+                            'technologies': self._detect_tech_from_headers(response.headers)
+                        })
+                        print(f"Found subdomain: {test_domain}")
+                        
+                except requests.RequestException:
+                    continue  # DNS resolution failed or connection error
+                except Exception:
+                    continue
+            
+            # Try Certificate Transparency logs (simplified approach)
+            try:
+                ct_url = f"https://crt.sh/?q=%.{domain}&output=json"
+                ct_response = requests.get(ct_url, timeout=10)
+                
+                if ct_response.status_code == 200:
+                    ct_data = ct_response.json()
+                    ct_subdomains = set()
+                    
+                    for entry in ct_data[:50]:  # Limit to first 50 entries
+                        name = entry.get('name_value', '')
+                        if name and '.' in name and domain in name:
+                            # Clean up the domain name
+                            clean_name = name.strip().lower()
+                            if not clean_name.startswith('*') and clean_name.endswith(domain):
+                                ct_subdomains.add(clean_name)
+                    
+                    # Test a few CT-discovered subdomains
+                    for ct_subdomain in list(ct_subdomains)[:10]:
+                        if ct_subdomain not in [sub['subdomain'] for sub in found_subdomains]:
+                            try:
+                                test_url = f"https://{ct_subdomain}"
+                                response = requests.get(test_url, timeout=3, allow_redirects=False)
+                                
+                                if response.status_code < 400:
+                                    found_subdomains.append({
+                                        'subdomain': ct_subdomain,
+                                        'status': response.status_code,
+                                        'title': self._extract_title_from_response(response),
+                                        'server': response.headers.get('server', ''),
+                                        'source': 'certificate_transparency'
+                                    })
+                                    print(f"Found CT subdomain: {ct_subdomain}")
+                                    
+                            except requests.RequestException:
+                                continue
+                                
+            except Exception as e:
+                print(f"Certificate Transparency lookup failed: {str(e)}")
+            
+            self.recon_data['subdomains'] = found_subdomains[:15]  # Limit results
+            
+        except Exception as e:
+            print(f"Error enumerating subdomains: {str(e)}")
+            self.recon_data['subdomains'] = []
+    
+    def _detect_technologies(self):
+        """Detect technologies used by the website."""
+        try:
+            print("Detecting technologies...")
+            
+            # Get current page response headers
+            try:
+                response = requests.get(self.current_url, timeout=10)
+                headers = response.headers
+                content = response.text
+            except:
+                headers = {}
+                content = self.page.content()
+            
+            technologies = []
+            
+            # Server detection
+            server = headers.get('server', '')
+            if server:
+                technologies.append({
+                    'name': 'Server',
+                    'value': server,
+                    'category': 'Web Server'
+                })
+            
+            # Framework detection from headers
+            framework_headers = {
+                'x-powered-by': 'Framework',
+                'x-aspnet-version': 'ASP.NET',
+                'x-generator': 'Generator',
+                'x-drupal-cache': 'Drupal',
+                'x-craft-powered-by': 'Craft CMS'
+            }
+            
+            for header, tech in framework_headers.items():
+                if header in headers:
+                    technologies.append({
+                        'name': tech,
+                        'value': headers[header],
+                        'category': 'Framework'
+                    })
+            
+            # Content-based detection
+            content_patterns = {
+                'WordPress': [r'wp-content', r'wp-includes', r'/wp-json/'],
+                'React': [r'react', r'__REACT_DEVTOOLS_GLOBAL_HOOK__'],
+                'Angular': [r'ng-version', r'angular', r'@angular'],
+                'Vue.js': [r'vue\.js', r'__VUE__', r'v-if'],
+                'jQuery': [r'jquery', r'\$\(document\)\.ready'],
+                'Bootstrap': [r'bootstrap', r'btn-primary', r'container-fluid'],
+                'Django': [r'csrfmiddlewaretoken', r'django'],
+                'Laravel': [r'laravel_session', r'_token'],
+                'Express.js': [r'express', r'X-Powered-By.*Express'],
+                'Next.js': [r'__NEXT_DATA__', r'_next/static'],
+                'Nuxt.js': [r'__NUXT__', r'nuxt'],
+                'Gatsby': [r'___gatsby', r'gatsby-'],
+                'Shopify': [r'shopify', r'cdn\.shopify\.com'],
+                'Magento': [r'magento', r'mage/cookies'],
+                'Joomla': [r'joomla', r'/media/jui/'],
+                'Drupal': [r'drupal', r'sites/default/files']
+            }
+            
+            for tech, patterns in content_patterns.items():
+                for pattern in patterns:
+                    if re.search(pattern, content, re.IGNORECASE):
+                        technologies.append({
+                            'name': tech,
+                            'category': 'Technology',
+                            'confidence': 'High' if len([p for p in patterns if re.search(p, content, re.IGNORECASE)]) > 1 else 'Medium'
+                        })
+                        break
+            
+            # JavaScript library detection from page
+            try:
+                js_libraries = self.page.evaluate("""
+                () => {
+                    const libs = [];
+                    
+                    // Check for common libraries
+                    if (typeof jQuery !== 'undefined') libs.push('jQuery ' + (jQuery.fn.jquery || ''));
+                    if (typeof React !== 'undefined') libs.push('React');
+                    if (typeof Vue !== 'undefined') libs.push('Vue.js');
+                    if (typeof angular !== 'undefined') libs.push('AngularJS');
+                    if (typeof $ !== 'undefined' && $.fn && $.fn.modal) libs.push('Bootstrap');
+                    if (typeof moment !== 'undefined') libs.push('Moment.js');
+                    if (typeof _ !== 'undefined') libs.push('Lodash/Underscore');
+                    if (typeof axios !== 'undefined') libs.push('Axios');
+                    if (typeof io !== 'undefined') libs.push('Socket.IO');
+                    
+                    return libs;
+                }
+                """)
+                
+                for lib in js_libraries:
+                    technologies.append({
+                        'name': lib,
+                        'category': 'JavaScript Library',
+                        'source': 'runtime_detection'
+                    })
+                    
+            except Exception:
+                pass
+            
+            # Security headers analysis
+            security_headers = {
+                'strict-transport-security': 'HSTS',
+                'content-security-policy': 'CSP',
+                'x-frame-options': 'X-Frame-Options',
+                'x-content-type-options': 'X-Content-Type-Options',
+                'x-xss-protection': 'X-XSS-Protection',
+                'referrer-policy': 'Referrer-Policy'
+            }
+            
+            security_analysis = {}
+            for header, name in security_headers.items():
+                if header in headers:
+                    security_analysis[name] = {
+                        'present': True,
+                        'value': headers[header]
+                    }
+                else:
+                    security_analysis[name] = {'present': False}
+            
+            self.recon_data['technologies'] = technologies
+            self.recon_data['security_headers'] = security_analysis
+            
+        except Exception as e:
+            print(f"Error detecting technologies: {str(e)}")
+            self.recon_data['technologies'] = []
+            self.recon_data['security_headers'] = {}
+    
+    def _extract_title_from_response(self, response):
+        """Extract title from HTTP response."""
+        try:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            title_tag = soup.find('title')
+            return title_tag.text.strip() if title_tag else ''
+        except:
+            return ''
+    
+    def _detect_tech_from_headers(self, headers):
+        """Detect technologies from HTTP headers."""
+        tech = []
+        if 'server' in headers:
+            tech.append(headers['server'])
+        if 'x-powered-by' in headers:
+            tech.append(headers['x-powered-by'])
+        return tech
+    
     def _format_page_data(self) -> str:
-        """Format all extracted data into the required string format."""
         try:
             # Format links
             links_str = []
@@ -445,19 +1017,45 @@ class PageDataExtractor:
             for api_call in self.api_calls:
                 api_calls_str.append(f"'{api_call['endpoint']}'")
             
+            # Format reconnaissance data
+            recon_summary = ""
+            if hasattr(self, 'recon_data'):
+                subdomains = [sub['subdomain'] for sub in self.recon_data.get('subdomains', [])]
+                technologies = [tech['name'] for tech in self.recon_data.get('technologies', [])]
+                security_headers = [name for name, data in self.recon_data.get('security_headers', {}).items() if data.get('present')]
+                
+                recon_summary = f"""
+                Reconnaissance Data:
+                - Subdomains Found: {subdomains[:10]}
+                - Technologies Detected: {technologies}
+                - Security Headers Present: {security_headers}"""
+            
+            # Format redirect data
+            redirect_summary = ""
+            if hasattr(self, 'redirect_data'):
+                accessible_paths = [path['url'] for path in self.redirect_data.get('accessible_paths', [])]
+                redirects = [f"{r['from']} -> {r['to']}" for r in self.redirect_data.get('redirects', [])]
+                additional_apis = self.redirect_data.get('additional_apis', [])
+                
+                redirect_summary = f"""
+                Path Analysis:
+                - Accessible Paths: {accessible_paths}
+                - Redirects Found: {redirects}
+                - Additional APIs: {additional_apis}"""
+            
             # Build the formatted string
             formatted_data = f"""Summarized HTML:
-{self.html_content}
+                {self.html_content}
 
-Page Data:
-- Links: [{', '.join(links_str)}]
-- Forms: [{', '.join(forms_str)}]
-- Sensitive Strings: {self.sensitive_strings}
+                Page Data:
+                - Links: [{', '.join(links_str)}]
+                - Forms: [{', '.join(forms_str)}]
+                - Sensitive Strings: {self.sensitive_strings}
 
-Request and Response Data:
-- Request: {self.request_data['method']} {self.request_data['url']}
-- Response: Status: {self.response_data.get('status', 'unknown')}, Title: '{self.response_data.get('title', '')}', Content-Type: {self.response_data.get('content_type', 'unknown')}
-- API calls: [{', '.join(api_calls_str)}]"""
+                Request and Response Data:
+                - Request: {self.request_data['method']} {self.request_data['url']}
+                - Response: Status: {self.response_data.get('status', 'unknown')}, Title: '{self.response_data.get('title', '')}', Content-Type: {self.response_data.get('content_type', 'unknown')}
+                - API calls: [{', '.join(api_calls_str)}]{recon_summary}{redirect_summary}"""
 
             return formatted_data
             
@@ -468,22 +1066,62 @@ Request and Response Data:
     def _get_fallback_data(self) -> str:
         """Return fallback data if extraction fails."""
         return f"""Summarized HTML:
-<html><body>Error extracting page data from {self.current_url}</body></html>
+            <html><body>Error extracting page data from {self.current_url}</body></html>
 
-Page Data:
-- Links: []
-- Forms: []
-- Sensitive Strings: []
+            Page Data:
+            - Links: []
+            - Forms: []
+            - Sensitive Strings: []
 
-Request and Response Data:
-- Request: GET {self.current_url}
-- Response: Status: unknown, Title: '', Content-Type: unknown
-- API calls: []"""
+            Request and Response Data:
+            - Request: GET {self.current_url}
+            - Response: Status: unknown, Title: '', Content-Type: unknown
+            - API calls: []"""
 
 
 # Example usage and testing
-if __name__ == "__main__":
-    print("PageDataExtractor - Example usage:")
-    print("This class requires a Playwright page object to function.")
-    print("Usage: extractor = PageDataExtractor(playwright_page)")
-    print("       page_data = extractor.extract_page_data()")
+if __name__ == "__main__":    
+    # Test URL
+    starting_url = "https://github.com/Avinier"
+    
+    try:
+        # Initialize WebProxy
+        proxy = WebProxy(starting_url)
+        
+        # Create browser instance
+        browser, context, page, playwright = proxy.create_proxy()
+        
+        try:
+            # Navigate to the URL
+            page.goto(starting_url, wait_until="networkidle")
+            
+            # Initialize PageDataExtractor
+            extractor = PageDataExtractor(page)
+            
+            # Extract page data
+            page_data = extractor.extract_page_data()
+            
+            # Print the extracted data
+            print("\n=== Extracted Page Data ===")
+            print(page_data)
+            
+            # Get and print network traffic
+            print("\n=== Network Traffic ===")
+            traffic = proxy.pretty_print_traffic()
+            if traffic:
+                print(traffic)
+            else:
+                print("No network traffic captured")
+            
+            # Save network data
+            proxy.save_network_data("network_capture.json")
+            
+        finally:
+            # Clean up browser resources
+            context.close()
+            browser.close()
+            playwright.stop()
+            
+    except Exception as e:
+        print(f"Error during testing: {str(e)}", file=sys.stderr)
+        sys.exit(1)

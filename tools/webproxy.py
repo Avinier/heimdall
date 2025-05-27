@@ -13,34 +13,20 @@ class WebProxy:
     form submissions, and XHR requests.
     """
 
-    def __init__(self, starting_url: str, logger):
-        """
-        Initialize the web proxy.
-
-        Args:
-            starting_url: Base URL to monitor traffic for
-            logger: Logger instance for output
-        """
+    def __init__(self, starting_url: str):
         self.requests: List[Dict] = []
         self.responses: List[Dict] = []
         self.request_response_pairs: List[Dict] = []
         self.starting_url = starting_url
         self.starting_hostname = urlparse(starting_url).netloc
-        self.logger = logger
         self.cdp_client = None
         self.is_capturing = True
         self.request_map = {}
 
     def create_proxy(self):
-        """
-        Create a browser instance with network monitoring capabilities.
-        
-        Returns:
-            Tuple of (browser, context, page, playwright) instances
-        """
         playwright = sync_playwright().start()
         browser = playwright.chromium.launch(
-            headless=False,
+            headless=True,
             args=['--disable-blink-features=AutomationControlled', '--disable-automation']
         )
         
@@ -61,23 +47,11 @@ class WebProxy:
         return browser, context, page, playwright
 
     def setup_monitoring(self, context: BrowserContext, page: Page):
-        """
-        Set up all monitoring mechanisms.
-
-        Args:
-            context: Browser context to monitor
-            page: Page instance to monitor
-        """
         self._setup_event_listeners(context)
         self._setup_cdp_monitoring(page)
     
     def _setup_event_listeners(self, context: BrowserContext):
-        """
-        Set up comprehensive event listeners for network traffic.
-        
-        Args:
-            context: Browser context to attach listeners to
-        """
+
         
         def handle_request(request):
             # Check if we should capture this request
@@ -87,7 +61,7 @@ class WebProxy:
                 resource_type = request.resource_type
                 
                 request_id = f"req_{datetime.now().timestamp()}"
-                self.logger.info(f"Captured {method} request to {url} [{resource_type}]", color='cyan')
+                print(f"Captured {method} request to {url} [{resource_type}]")
                 
                 # Store full request data
                 request_data = {
@@ -110,7 +84,7 @@ class WebProxy:
             # Check if we have a matching request
             if url in self.request_map:
                 request_data = self.request_map[url]
-                self.logger.info(f"Captured response {status} from {url}", color='green')
+                print(f"Captured response {status} from {url}")
                 
                 # Store response data
                 try:
@@ -148,19 +122,14 @@ class WebProxy:
                     })
                     
                 except Exception as e:
-                    self.logger.info(f"Error processing response: {str(e)}", color='red')
+                    print(f"Error processing response: {str(e)}")
         
         # Register event listeners on context
         context.on('request', handle_request)
         context.on('response', handle_response)
     
     def _setup_cdp_monitoring(self, page: Page):
-        """
-        Set up Chrome DevTools Protocol monitoring as a backup.
-        
-        Args:
-            page: Page instance to monitor via CDP
-        """
+
         try:
             # Create CDP session
             self.cdp_client = page.context.new_cdp_session(page)
@@ -189,7 +158,7 @@ class WebProxy:
                 
                 # Check if this is a request we care about
                 if method == 'POST' or '/api/' in url or '.json' in url:
-                    self.logger.info(f"CDP captured {method} request to {url}", color='blue')
+                    print(f"CDP captured {method} request to {url}")
                     
                     # Store request
                     request_data = {
@@ -214,7 +183,7 @@ class WebProxy:
                 response = params.get('response', {})
                 url = response.get('url', '')
                 
-                self.logger.info(f"CDP captured response from {url}", color='light_blue')
+                print(f"CDP captured response from {url}")
                 
                 # Store response
                 response_data = {
@@ -251,20 +220,11 @@ class WebProxy:
             self.cdp_client.on('Network.requestWillBeSent', handle_cdp_request)
             self.cdp_client.on('Network.responseReceived', handle_cdp_response)
             
-            self.logger.info("CDP monitoring enabled", color='yellow')
+            print("CDP monitoring enabled")
         except Exception as e:
-            self.logger.info(f"Failed to set up CDP monitoring: {str(e)}", color='red')
+            print(f"Failed to set up CDP monitoring: {str(e)}")
     
     def _should_capture_request(self, request):
-        """
-        Check if we should capture this request based on type and hostname.
-        
-        Args:
-            request: Request to evaluate
-            
-        Returns:
-            bool indicating if request should be captured
-        """
         # First check if the hostname matches our starting URL
         request_hostname = urlparse(request.url).netloc
         if request_hostname != self.starting_hostname:
@@ -287,15 +247,6 @@ class WebProxy:
         return is_xhr or is_fetch or is_websocket or is_post or is_api or is_form
     
     def _should_capture_body(self, response):
-        """
-        Check if we should capture the response body based on content type and other factors.
-        
-        Args:
-            response: Response to evaluate
-            
-        Returns:
-            bool indicating if response body should be captured
-        """
         # Don't capture body for error responses or redirects
         if response.status >= 400 or (300 <= response.status < 400):
             return False
@@ -345,12 +296,7 @@ class WebProxy:
         return True
     
     def get_network_data(self):
-        """
-        Get all captured network data.
-        
-        Returns:
-            Dict containing requests, responses and request-response pairs
-        """
+
         return {
             'requests': self.requests,
             'responses': self.responses,
@@ -358,12 +304,7 @@ class WebProxy:
         }
     
     def save_network_data(self, filepath: str):
-        """
-        Save captured network data to a JSON file.
-        
-        Args:
-            filepath: Path to save JSON file to
-        """
+
         data = {
             'requests': self.requests,
             'responses': self.responses,
@@ -375,12 +316,7 @@ class WebProxy:
             json.dump(data, f, indent=2, default=str)
     
     def pretty_print_traffic(self):
-        """
-        Pretty print captured traffic.
-        
-        Returns:
-            Formatted string of traffic or None if no traffic captured
-        """
+
         if not self.request_response_pairs:
             return None
         
@@ -424,7 +360,6 @@ class WebProxy:
         return "\n".join(output)
     
     def clear(self):
-        """Clear all captured network data."""
         self.requests = []
         self.responses = []
         self.request_response_pairs = []
