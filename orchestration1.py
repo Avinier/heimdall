@@ -1,4 +1,4 @@
-# Page Data extraction and planner orchestration
+# Page Data extraction and planner+summarizer orchestration
 
 import sys
 import time

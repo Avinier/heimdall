@@ -4,24 +4,30 @@ from typing import List, Dict, Any, Optional
 from llms_test import LLM
 
 PLANNER_SYSTEM_PROMPT = """
-You are an expert bug bounty hunter with years of experience finding critical vulnerabilities in web applications. Your job is to carefully analyze a website, think like an attacker, and identify potential security issues that could lead to high-impact exploits.
+You are an expert Vulnerability Assessment and Penetration Testing (VAPT) specialist with extensive experience in Dynamic Application Security Testing (DAST). Your role is to systematically analyze web applications using industry-standard VAPT methodologies and generate comprehensive security test plans that follow OWASP testing guidelines and NIST penetration testing frameworks.
+
+## VAPT Methodology Overview
+Your analysis follows a structured VAPT approach:
+1. **Vulnerability Identification** - Systematic vulnerability discovery using DAST techniques
+2. **Exploitation Planning** - Risk-based test case prioritization
+3. **Impact Assessment** - Business risk evaluation for discovered vulnerabilities
 
 ## Input Format
-You will receive data in the following format:
+You will receive comprehensive reconnaissance data in the following format:
 
-Summarized HTML:
+**Summarized HTML:**
 <html>...</html>
-<!-- This contains a security-focused summary with:
-- Forms in condensed format: <form action="/login" method="POST" [CSRF]>text:username,password:password</form>
-- Auth-related links: <a href="/admin">admin panel</a>
-- API endpoints as comments: <!-- APIs: /api/users, /api/login -->
-- Security headers in <head> section
-- Error messages and security-relevant comments -->
+<!-- Security-focused analysis containing:
+- Forms with security annotations: <form action="/login" method="POST" [CSRF]>text:username,password:password</form>
+- Authentication mechanisms: <a href="/admin">admin panel</a>
+- API endpoints: <!-- APIs: /api/users, /api/login -->
+- Security headers analysis in <head> section
+- Error messages and developer comments with security implications -->
 
-Page Data:
-- Links: ['url1', 'url2', ...]
-- Forms: [{'action': '/login', 'method': 'POST', 'fields': ['username', 'password']}, ...]
-- Sensitive Strings: [list of sensitive keywords/patterns found]
+**Application Fingerprinting:**
+- Links: ['url1', 'url2', ...] (Attack surface enumeration)
+- Forms: [{'action': '/login', 'method': 'POST', 'fields': ['username', 'password']}] (Input vectors)
+- Sensitive Strings: [sensitive keywords/patterns] (Information disclosure indicators)
 
 Request and Response Data:
 - Request: GET/POST {url}
@@ -38,82 +44,88 @@ Path Analysis:
 - Redirects Found: [redirect chains discovered]
 - Additional APIs: [additional API endpoints found]
 
-## Analysis Guidelines
-Focus on these high-impact vulnerability classes:
+## DAST-Specific Testing Approaches
 
-**Authentication & Authorization:**
-- Authentication bypass techniques
-- Session management flaws
-- Insecure direct object references (IDOR)
+**Dynamic Input Validation Testing:**
+- Boundary value analysis on all input fields
+- Malformed data injection (oversized inputs, special characters)
+- Type confusion attacks (string vs integer manipulation)
+- Encoding bypass testing (URL, HTML, Unicode encoding)
 
-**Injection Attacks:**
-- SQL injection in forms and parameters
-- Cross-site scripting (XSS) in input fields
+**Session Management DAST:**
+- Session token entropy analysis
+- Session fixation and hijacking tests
+- Concurrent session handling
+- Session timeout validation
+- Cross-site request forgery (CSRF) testing
 
-**API Security:**
-- API endpoint enumeration and testing
-- Parameter manipulation and fuzzing
-- Rate limiting bypass
-- API versioning vulnerabilities
+**API Security DAST:**
+- REST/GraphQL endpoint enumeration and fuzzing
+- HTTP method tampering (PUT, DELETE, PATCH testing)
+- Content-type manipulation attacks
+- Rate limiting and DoS testing
+- API versioning security gaps
 
-**Information Disclosure:**
-- Error message analysis for sensitive data leaks
-- Technology fingerprinting for known vulnerabilities
-- Comment analysis for developer secrets
-- Subdomain enumeration for expanded attack surface
+**Client-Side Security DAST:**
+- DOM manipulation and client-side bypass
+- JavaScript security analysis
+- WebSocket security testing
+- Local storage security assessment
 
-**Client-Side Security:**
-- CSRF token validation
-- Content Security Policy bypass
-- DOM-based vulnerabilities
-- Client-side control bypass
+## Risk-Based Test Prioritization
+Prioritize tests based on:
+1. **Critical** - Authentication bypass, SQL injection, RCE
+2. **High** - XSS, IDOR, sensitive data exposure
+3. **Medium** - CSRF, information disclosure, security misconfigurations
+4. **Low** - Missing security headers, verbose error messages
 
-## Authentication Strategy
-If authentication would help discover more vulnerabilities, mention calling auth_needed() function for user assistance with login. However, prioritize unauthenticated testing first - many critical vulnerabilities exist without authentication.
+## Authentication Strategy for VAPT
+If authentication is required for comprehensive testing, recommend calling auth_needed() function. However, prioritize unauthenticated attack surface first as per VAPT best practices - many critical vulnerabilities exist in public-facing components.
 
-## Data Analysis Instructions
+## DAST Analysis Instructions
 
-HTML Summary: Extract form actions/methods from condensed format, API endpoints from comments, CSRF indicators, security headers
-Forms: Test for injection, CSRF implementation, input validation, hidden fields
-APIs: Test authorization bypass, parameter manipulation, rate limiting
-Tech Stack: Research known vulnerabilities for detected versions
-Reconnaissance: Test subdomains, accessible paths, missing security headers
+**HTML Analysis:** Extract security-relevant elements, identify input vectors, analyze client-side controls
+**Form Security:** Test input validation, CSRF protection, hidden field manipulation, file upload security
+**API Testing:** Enumerate endpoints, test authorization, parameter manipulation, rate limiting
+**Technology Stack:** Research CVEs for detected versions, test for known exploits
+**Infrastructure:** Test subdomain takeover, missing security headers, service enumeration
 
-## Critical Requirements
-- **MUST generate 3-5 specific security test plans**
-- Reference actual endpoints, forms, APIs from provided data
-- Focus on high-impact vulnerabilities based on discovered attack surface
-- Use concrete, actionable testing steps
-- Return empty list if no clear vulnerabilities found
+## Critical VAPT Requirements
+- **MUST generate ONLY 3-5 specific, actionable security test plans**
+- Reference actual endpoints, forms, APIs from reconnaissance data
+- Focus on high-impact vulnerabilities with clear exploitation paths
+- Use industry-standard testing methodologies (OWASP, NIST, PTES)
+- Provide concrete testing steps with expected outcomes
+- Return empty list only if no testable attack surface exists
 
 ## Output Format
-Your response MUST be in YAML format. Each item should have a 'title' and 'description' field. Start directly with the YAML - no code blocks or additional text.
+Your response MUST be in YAML format with 'title' and 'description' fields. Start directly with YAML - no code blocks or additional text.
 
-Be specific in descriptions - reference actual endpoints, form actions, and parameters found in the data. Use professional language (e.g., "test with various payloads" instead of "attack").
+Use professional VAPT terminology and reference specific testing techniques. Include payload examples where appropriate.
 
-## Example Output Structure
+## VAPT Test Plan Examples
 ```yaml
-- title: SQL Injection Testing in Login Form
-  description: The login form at /auth/login accepts username and password parameters. Test these inputs with SQL injection payloads to check for database query manipulation vulnerabilities, particularly focusing on authentication bypass.
+- title: SQL Injection Vulnerability Assessment - Authentication Bypass
+  description: Conduct systematic SQL injection testing on the login form at /auth/login using time-based and boolean-based payloads. Test username and password parameters with UNION-based queries, error-based injection, and authentication bypass techniques including ' OR '1'='1' variants. Verify database interaction through response timing analysis and error message enumeration.
 
-- title: API Authorization Bypass Testing
-  description: The discovered API endpoints /api/users and /api/admin should be tested for authorization bypass by manipulating user IDs, removing authentication headers, and testing different HTTP methods to access unauthorized data.
+- title: API Authorization Testing - IDOR and Privilege Escalation
+  description: Perform comprehensive authorization testing on discovered API endpoints /api/users and /api/admin. Test for Insecure Direct Object References by manipulating user IDs (1, 2, 3, ../admin, etc.), test HTTP method tampering (GET to POST/PUT/DELETE), remove/modify authorization headers, and attempt horizontal/vertical privilege escalation through parameter manipulation.
 
-- title: Cross-Site Scripting in Search Functionality
-  description: The search form with action /search reflects user input. Test with XSS payloads including script tags, event handlers, and encoded variants to determine if input sanitization is properly implemented.
+- title: Cross-Site Scripting (XSS) Vulnerability Assessment
+  description: Execute systematic XSS testing on all identified input vectors including search forms and user input fields. Test reflected XSS with payloads like <script>alert('XSS')</script>, stored XSS through persistent data submission, and DOM-based XSS via URL fragments. Include encoding bypass techniques (HTML entities, URL encoding, JavaScript encoding) and CSP bypass attempts.
 
-- title: Information Disclosure via Error Messages
-  description: Based on the detected technology stack (Apache/2.4.41, PHP/7.4), trigger error conditions across forms and API endpoints to check for sensitive information leakage in error responses.
+- title: Session Management Security Assessment
+  description: Analyze session handling mechanisms through session token entropy testing, session fixation attempts, and concurrent session validation. Test CSRF protection by removing/modifying tokens, attempt session hijacking through XSS, and validate session timeout enforcement. Include testing for secure cookie attributes and session invalidation on logout.
 
-- title: CSRF Token Validation Testing
-  description: The forms show [CSRF] indicators but this needs verification. Test CSRF protection by removing tokens, using tokens from different sessions, and checking if the application properly validates token authenticity.
+- title: Information Disclosure and Error Handling Assessment
+  description: Systematically trigger error conditions across all application endpoints to identify information leakage. Test with malformed requests, invalid parameters, and boundary conditions. Analyze technology stack (Apache/2.4.41, PHP/7.4) for known CVEs and test for path disclosure, database errors, and stack trace exposure that could aid further exploitation.
 ```
 
-Remember: Base your analysis on the actual data provided. Reference specific URLs, endpoints, technologies, and security indicators found in the reconnaissance data. Generate targeted, actionable test plans that leverage the discovered attack surface.
+Remember: Generate targeted, risk-based test plans that follow VAPT methodologies. Reference specific reconnaissance data and provide actionable testing steps that can be executed as part of a comprehensive DAST assessment. Focus on vulnerabilities that pose real business risk and can be validated through dynamic testing.
 """
 
 
-class Planner:
+class PlannerAgent:
     """
     Security test planner that analyzes web application data and generates
     structured security testing plans using LLM analysis.
@@ -145,7 +157,7 @@ class Planner:
 
         try:
             # Use Gemini basic call with the system prompt and page data
-            full_prompt = f"{PLANNER_SYSTEM_PROMPT}\n\n{input_pagedata}"
+            full_prompt = f"{PLANNER_SYSTEM_PROMPT}\n\n The actual page data is: {input_pagedata}"
             response = self.llm.gemini_basic_call(full_prompt, model="gemini-2.0-flash")
             return response
             
@@ -336,40 +348,139 @@ class Planner:
 
 # Example usage and testing
 if __name__ == "__main__":
-    planner = Planner(desc="testing the planner")
+    planner = PlannerAgent(desc="testing the planner")
     
-    # Test with sample page data
+    # Test with comprehensive VAPT sample data
     sample_data = """
 Summarized HTML:
 <html>
-<head><title>Login Page</title></head>
+<head>
+    <title>SecureBank - Online Banking Portal</title>
+    <meta name="generator" content="WordPress 5.8.2">
+    <!-- Security Headers Analysis -->
+    <!-- Missing: Content-Security-Policy, X-Frame-Options -->
+    <script src="/js/jquery-3.4.1.min.js"></script>
+    <script src="/js/admin-panel.js"></script>
+</head>
 <body>
-<form action="/login" method="POST">
-<input type="text" name="username" placeholder="Username">
-<input type="password" name="password" placeholder="Password">
-<input type="submit" value="Login">
-</form>
+    <!-- Login Form with potential CSRF vulnerability -->
+    <form action="/auth/login" method="POST" id="loginForm">
+        <input type="text" name="username" placeholder="Username" required>
+        <input type="password" name="password" placeholder="Password" required>
+        <input type="hidden" name="csrf_token" value="abc123def456">
+        <input type="submit" value="Login">
+    </form>
+    
+    <!-- Search functionality - potential XSS vector -->
+    <form action="/search" method="GET">
+        <input type="text" name="q" placeholder="Search transactions...">
+        <input type="submit" value="Search">
+    </form>
+    
+    <!-- File upload form - potential RCE vector -->
+    <form action="/upload/statement" method="POST" enctype="multipart/form-data">
+        <input type="file" name="document" accept=".pdf,.doc,.docx">
+        <input type="submit" value="Upload Statement">
+    </form>
+    
+    <!-- Admin panel link -->
+    <a href="/admin/dashboard">Admin Panel</a>
+    <a href="/api/docs">API Documentation</a>
+    
+    <!-- API endpoints discovered in comments -->
+    <!-- APIs: /api/v1/users, /api/v1/accounts, /api/v2/transactions, /api/admin/users -->
+    <!-- Internal APIs: /internal/backup, /internal/logs -->
+    
+    <!-- Error message with stack trace -->
+    <!-- DEBUG: Database connection failed - MySQL server at localhost:3306 -->
+    <!-- TODO: Remove debug info before production -->
 </body>
 </html>
 
-Page Data:
-- Links: ['/dashboard', '/admin', '/api/users']
-- Forms: [{'action': '/login', 'method': 'POST', 'fields': ['username', 'password']}]
-- Sensitive Strings: ['admin', 'password', 'token']
+Application Fingerprinting:
+- Links: ['/dashboard', '/admin/dashboard', '/profile', '/transactions', '/api/docs', '/logout', '/forgot-password', '/register']
+- Forms: [
+    {'action': '/auth/login', 'method': 'POST', 'fields': ['username', 'password', 'csrf_token']},
+    {'action': '/search', 'method': 'GET', 'fields': ['q']},
+    {'action': '/upload/statement', 'method': 'POST', 'fields': ['document'], 'enctype': 'multipart/form-data'},
+    {'action': '/profile/update', 'method': 'POST', 'fields': ['email', 'phone', 'address']},
+    {'action': '/transfer', 'method': 'POST', 'fields': ['to_account', 'amount', 'description']}
+]
+- Sensitive Strings: ['admin', 'password', 'token', 'api_key', 'secret', 'database', 'mysql', 'localhost', 'debug', 'backup', 'internal']
 
 Request and Response Data:
-- Request: POST /login HTTP/1.1
-- Response: HTTP/1.1 200 OK, Set-Cookie: session=abc123
-- API calls: ['/api/login', '/api/validate']
+- Request: GET / HTTP/1.1
+- Response: HTTP/1.1 200 OK, Server: Apache/2.4.41, X-Powered-By: PHP/7.4.3, Set-Cookie: PHPSESSID=abc123def456; path=/
+- Request: POST /auth/login HTTP/1.1
+- Response: HTTP/1.1 302 Found, Location: /dashboard, Set-Cookie: session_token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9
+- API calls: ['/api/v1/users', '/api/v1/accounts/{id}', '/api/v2/transactions', '/api/admin/users', '/internal/backup']
+
+Reconnaissance Data:
+- Subdomains Found: ['admin.securebank.com', 'api.securebank.com', 'dev.securebank.com', 'staging.securebank.com', 'mail.securebank.com']
+- Technologies Detected: [
+    'Apache/2.4.41 (Ubuntu)',
+    'PHP/7.4.3',
+    'WordPress 5.8.2',
+    'MySQL 5.7',
+    'jQuery 3.4.1',
+    'Bootstrap 4.5.2',
+    'JWT Authentication',
+    'Cloudflare CDN'
+]
+- Security Headers Present: ['Strict-Transport-Security: max-age=31536000']
+- Security Headers Missing: ['Content-Security-Policy', 'X-Frame-Options', 'X-Content-Type-Options', 'Referrer-Policy']
+
+Path Analysis:
+- Accessible Paths: [
+    '/admin/',
+    '/api/',
+    '/backup/',
+    '/config/',
+    '/logs/',
+    '/phpinfo.php',
+    '/wp-admin/',
+    '/wp-content/uploads/',
+    '/.git/',
+    '/robots.txt',
+    '/sitemap.xml',
+    '/.env'
+]
+- Redirects Found: [
+    '/admin -> /admin/login',
+    '/dashboard -> /auth/login (if not authenticated)',
+    '/api -> /api/v1/',
+    '/old-api -> /api/v2/'
+]
+- Additional APIs: [
+    '/api/v1/auth/login',
+    '/api/v1/auth/refresh',
+    '/api/v1/users/{id}',
+    '/api/v1/accounts/{id}/balance',
+    '/api/v1/transactions/{id}',
+    '/api/v2/graphql',
+    '/api/admin/users',
+    '/api/admin/logs',
+    '/internal/health',
+    '/internal/metrics'
+]
+
+Additional Security Findings:
+- Exposed Configuration: /.env file accessible containing database credentials
+- Information Disclosure: /phpinfo.php reveals server configuration
+- Version Control Exposure: /.git/ directory accessible
+- Default Credentials: WordPress admin panel accessible with weak credentials
+- Insecure File Permissions: /backup/ directory allows directory listing
+- JWT Token Issues: Weak signing algorithm detected (HS256 with short secret)
+- Database Errors: SQL error messages visible in application responses
+- CORS Misconfiguration: Wildcard (*) origin allowed on API endpoints
+- Rate Limiting: No rate limiting detected on authentication endpoints
+- Session Management: Session tokens don't expire properly
 """
     
     try:
         plans = planner.plan(sample_data)
-        print("Generated Security Test Plans:")
-        print("=" * 50)
-        for i, plan in enumerate(plans, 1):
-            print(f"{i}. {plan['title']}")
-            print(f"   {plan['description']}")
-            print()
+        print("Generated VAPT Security Test Plans:")
+        print("=" * 60)
+        print(plans)
     except Exception as e:
         print(f"Test failed: {e}")

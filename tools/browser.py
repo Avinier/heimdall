@@ -1,8 +1,9 @@
 import sys
 import re
 from io import StringIO
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from playwright.sync_api import Page
+from playwright.async_api import async_playwright, Browser, Page as AsyncPage
 import logging
 from llms import LLM
 
@@ -17,16 +18,20 @@ class PlaywrightTools:
     Collection of tools for interacting with web pages and executing code.
     Provides methods for page manipulation, JavaScript execution, and Python code evaluation.
     Works with Playwright page objects created by WebProxy.
+    Supports both sync and async operations for penetration testing.
     """
 
-    def __init__(self):
-
+    def __init__(self, debug: bool = False, use_llm: bool = True):
+        self.debug = debug
         self.llm = None
-        try:
-            self.llm = LLM("Playwright security testing tools")
-            print("LLM initialized successfully with Gemini")
-        except Exception as e:
-            print(f"Failed to initialize LLM: {str(e)}")
+        if use_llm:
+            try:
+                self.llm = LLM("Playwright security testing tools")
+                if self.debug:
+                    print("LLM initialized successfully with Gemini")
+            except Exception as e:
+                if self.debug:
+                    print(f"Failed to initialize LLM: {str(e)}")
         
         # Security testing state tracking
         self.security_actions_performed = 0
@@ -35,6 +40,10 @@ class PlaywrightTools:
         # Initialize the page object storage
         self.current_page = None
         self.current_url = None
+        
+        # Browser automation support (async)
+        self.browser: Optional[Browser] = None
+        self.async_page: Optional[AsyncPage] = None
         
     def execute_js(self, page: Page, js_code: str) -> str:
         """Execute JavaScript code on the page.
@@ -925,6 +934,161 @@ class PlaywrightTools:
             return 'goto(page, "/docs/")'
         
         return tool_use
+
+    # ===== BROWSER MANAGEMENT METHODS =====
+    async def start_browser(self, headless: bool = True) -> bool:
+        """Start browser instance for async operations
+        
+        Args:
+            headless: Whether to run browser in headless mode
+            
+        Returns:
+            True if browser started successfully, False otherwise
+        """
+        try:
+            from playwright.async_api import async_playwright
+            
+            playwright = await async_playwright().start()
+            self.browser = await playwright.chromium.launch(
+                headless=headless,
+                args=['--ignore-certificate-errors', '--disable-web-security']
+            )
+            context = await self.browser.new_context(
+                ignore_https_errors=True,
+                viewport={'width': 1920, 'height': 1080}
+            )
+            self.async_page = await context.new_page()
+            
+            if self.debug:
+                print("✅ Browser started successfully")
+            return True
+            
+        except Exception as e:
+            if self.debug:
+                print(f"❌ Failed to start browser: {e}")
+            return False
+    
+    async def close_browser(self):
+        """Close the async browser instance"""
+        if self.browser:
+            try:
+                await self.browser.close()
+                self.browser = None
+                self.async_page = None
+                if self.debug:
+                    print("✅ Browser closed successfully")
+            except Exception as e:
+                if self.debug:
+                    print(f"❌ Error closing browser: {e}")
+    
+    # Alias for backward compatibility
+    async def close(self):
+        """Alias for close_browser()"""
+        await self.close_browser()
+    
+    # ===== ASYNC BROWSER METHODS =====
+    async def async_goto(self, url: str) -> Dict[str, Any]:
+        """Navigate to URL using async page and gather information
+        
+        Args:
+            url: URL to navigate to
+            
+        Returns:
+            Dictionary containing page information
+        """
+        if not self.async_page:
+            return {"error": "Browser not initialized. Call start_browser() first."}
+            
+        try:
+            response = await self.async_page.goto(url, wait_until='domcontentloaded')
+            title = await self.async_page.title()
+            
+            # Extract forms for input testing
+            forms = await self.async_page.evaluate("""
+                () => {
+                    return Array.from(document.forms).map(form => ({
+                        action: form.action,
+                        method: form.method,
+                        inputs: Array.from(form.elements).map(el => ({
+                            name: el.name,
+                            type: el.type,
+                            value: el.value
+                        }))
+                    }));
+                }
+            """)
+            
+            # Extract links
+            links = await self.async_page.evaluate("""
+                () => Array.from(document.links).map(link => link.href)
+            """)
+            
+            self.current_url = url
+            self.security_actions_performed += 1
+            
+            return {
+                "status": response.status if response else None,
+                "title": title,
+                "forms": forms,
+                "links": links[:50],  # Limit to first 50 links
+                "url": url
+            }
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def async_click(self, selector: str) -> Dict[str, Any]:
+        """Click on element using async page
+        
+        Args:
+            selector: CSS selector for element to click
+            
+        Returns:
+            Dictionary with action result
+        """
+        if not self.async_page:
+            return {"error": "Browser not initialized"}
+            
+        try:
+            await self.async_page.click(selector)
+            await self.async_page.wait_for_load_state('domcontentloaded')
+            self.security_actions_performed += 1
+            return {"success": True, "action": f"clicked {selector}"}
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def async_fill_form(self, selector: str, value: str) -> Dict[str, Any]:
+        """Fill form field using async page
+        
+        Args:
+            selector: CSS selector for input field
+            value: Value to fill
+            
+        Returns:
+            Dictionary with action result
+        """
+        if not self.async_page:
+            return {"error": "Browser not initialized"}
+            
+        try:
+            await self.async_page.fill(selector, value)
+            self.security_actions_performed += 1
+            return {"success": True, "action": f"filled {selector} with {value}"}
+        except Exception as e:
+            return {"error": str(e)}
+    
+    async def async_get_content(self) -> str:
+        """Get page content using async page
+        
+        Returns:
+            Page HTML content
+        """
+        if not self.async_page:
+            return "Browser not initialized"
+            
+        try:
+            return await self.async_page.content()
+        except Exception as e:
+            return f"Error getting content: {str(e)}"
 
 
 # Convenience function for creating PlaywrightTools instance
