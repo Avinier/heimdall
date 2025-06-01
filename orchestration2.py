@@ -1,369 +1,411 @@
-#!/usr/bin/env python3
-"""
-Comprehensive Penetration Testing Integration Demo
+#AVINIERNOTES: 2st Phase of Orchestration: Context Mgmt for Actioner and Reporter Agent.
+#              So this will generate the actions which will be tool called
 
-This script demonstrates how Project Heimdall's penetration testing system works:
-1. PlannerAgent generates intelligent security test plans using Gemini LLM
-2. ToolCall system executes the plans using various security tools
-3. Results are aggregated and reported with vulnerability findings
-
-Features demonstrated:
-- Integration between PlannerAgent and ToolCall
-- Automated tool selection based on test plan content
-- Support for OWASP ZAP, SQLMap, Nmap, Nikto, browser automation, and more
-- Comprehensive vulnerability reporting with recommendations
-"""
-
-import asyncio
-import json
+import sys
 import time
-from typing import List, Dict, Any
-from pathlib import Path
-
-# Import your existing classes
+import re
+from urllib.parse import urljoin, urlparse
+from tools.webproxy import WebProxy
+from tools.pagedata_extractor import PageDataExtractor
 from agents.planner import PlannerAgent
-from tools.tool_calls import ToolCall, ToolResult
+from agents.actioner import ActionerAgent
+from agents.context_manager import ContextManagerAgent
 
-
-class PenetrationTestingOrchestrator:
+def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
     """
-    Main orchestrator that combines PlannerAgent with ToolCall system
-    for comprehensive automated penetration testing.
+    Run the complete security analysis orchestration with nested loop structure.
+    
+    Parameters:
+    - expand_scope: Whether to add discovered URLs to the queue
+    - max_iterations: Maximum iterations per plan execution
+    - keep_messages: Number of recent messages to keep in conversation history
     """
     
-    def __init__(self, config: Dict = None):
-        self.config = config or {}
-        self.planner = PlannerAgent(desc="Automated penetration testing planner")
-        self.tool_executor = ToolCall(config=self.config)
-        
-        # Results storage
-        self.test_results = []
-        self.vulnerabilities_found = []
-        self.execution_summary = {}
-        
-        print("🔒 Project Heimdall - Penetration Testing System Initialized")
-        print(f"🛠️  Available tools: {list(self.tool_executor.available_tools.keys())}")
-        print(f"✅ Enabled tools: {[k for k, v in self.tool_executor.available_tools.items() if v]}")
-        print()
+    # INITIALIZE: Create web proxy and scanner
+    base_url = "https://github.com/Avinier"  # Change this to your target URL
+    total_token_counter = 0
     
-    async def run_comprehensive_security_test(self, target_data: str) -> Dict[str, Any]:
-        """
-        Run a complete penetration testing cycle:
-        1. Generate test plans using PlannerAgent
-        2. Execute plans using ToolCall system
-        3. Aggregate and report results
-        """
-        start_time = time.time()
-        
-        print("🎯 Starting Comprehensive Security Assessment")
-        print("=" * 60)
-        
-        # Step 1: Generate security test plans
-        print("📋 Step 1: Generating Security Test Plans...")
-        test_plans = self.planner.plan(target_data)
-        print(f"✅ Generated {len(test_plans)} security test plans")
-        
-        # Display generated plans
-        for i, plan in enumerate(test_plans, 1):
-            print(f"   {i}. {plan['title']}")
-        print()
-        
-        # Step 2: Execute each test plan
-        print("⚡ Step 2: Executing Security Tests...")
-        for i, plan in enumerate(test_plans, 1):
-            print(f"🔍 Executing Test {i}/{len(test_plans)}: {plan['title']}")
-            
-            try:
-                # Execute the plan step using ToolCall
-                result = await self.tool_executor.execute_plan_step(plan)
-                self.test_results.append({
-                    'plan': plan,
-                    'result': result,
-                    'test_number': i
-                })
-                
-                # Collect vulnerabilities
-                if result.vulnerabilities_found:
-                    self.vulnerabilities_found.extend(result.vulnerabilities_found)
-                
-                # Print execution summary
-                status = "✅ PASSED" if result.success else "❌ FAILED"
-                print(f"   {status} | Tool: {result.tool_name} | Time: {result.execution_time:.2f}s")
-                
-                if result.vulnerabilities_found:
-                    print(f"   🚨 Found {len(result.vulnerabilities_found)} vulnerabilities")
-                
-                print()
-                
-            except Exception as e:
-                print(f"   ❌ ERROR: {str(e)}")
-                print()
-        
-        # Step 3: Generate comprehensive report
-        execution_time = time.time() - start_time
-        report = self._generate_security_report(execution_time)
-        
-        return report
-    
-    def _generate_security_report(self, execution_time: float) -> Dict[str, Any]:
-        """Generate a comprehensive security assessment report"""
-        
-        # Categorize vulnerabilities by severity
-        critical_vulns = [v for v in self.vulnerabilities_found if v.get('severity') == 'Critical']
-        high_vulns = [v for v in self.vulnerabilities_found if v.get('severity') == 'High']
-        medium_vulns = [v for v in self.vulnerabilities_found if v.get('severity') == 'Medium']
-        low_vulns = [v for v in self.vulnerabilities_found if v.get('severity') == 'Low']
-        
-        # Categorize by vulnerability type
-        vuln_types = {}
-        for vuln in self.vulnerabilities_found:
-            vuln_type = vuln.get('type', 'Unknown')
-            if vuln_type not in vuln_types:
-                vuln_types[vuln_type] = []
-            vuln_types[vuln_type].append(vuln)
-        
-        # Tools used summary
-        tools_used = {}
-        for result in self.test_results:
-            tool_name = result['result'].tool_name
-            if tool_name not in tools_used:
-                tools_used[tool_name] = {
-                    'executions': 0,
-                    'success_rate': 0,
-                    'total_time': 0,
-                    'vulnerabilities_found': 0
-                }
-            
-            tools_used[tool_name]['executions'] += 1
-            tools_used[tool_name]['total_time'] += result['result'].execution_time
-            if result['result'].success:
-                tools_used[tool_name]['success_rate'] += 1
-            if result['result'].vulnerabilities_found:
-                tools_used[tool_name]['vulnerabilities_found'] += len(result['result'].vulnerabilities_found)
-        
-        # Calculate success rates
-        for tool in tools_used:
-            tools_used[tool]['success_rate'] = tools_used[tool]['success_rate'] / tools_used[tool]['executions']
-        
-        report = {
-            'summary': {
-                'total_tests_executed': len(self.test_results),
-                'total_execution_time': execution_time,
-                'total_vulnerabilities_found': len(self.vulnerabilities_found),
-                'critical_vulnerabilities': len(critical_vulns),
-                'high_vulnerabilities': len(high_vulns),
-                'medium_vulnerabilities': len(medium_vulns),
-                'low_vulnerabilities': len(low_vulns)
-            },
-            'vulnerabilities_by_severity': {
-                'Critical': critical_vulns,
-                'High': high_vulns,
-                'Medium': medium_vulns,
-                'Low': low_vulns
-            },
-            'vulnerabilities_by_type': vuln_types,
-            'tools_performance': tools_used,
-            'test_results': self.test_results,
-            'recommendations': self._generate_recommendations()
-        }
-        
-        return report
-    
-    def _generate_recommendations(self) -> List[str]:
-        """Generate security recommendations based on found vulnerabilities"""
-        recommendations = []
-        
-        # Get all unique recommendations from test results
-        all_recommendations = set()
-        for result in self.test_results:
-            if result['result'].recommendations:
-                all_recommendations.update(result['result'].recommendations)
-        
-        recommendations.extend(list(all_recommendations))
-        
-        # Add general security recommendations
-        recommendations.extend([
-            "Implement a comprehensive security testing pipeline",
-            "Regular security assessments and code reviews",
-            "Keep all software components up to date",
-            "Implement proper logging and monitoring",
-            "Follow OWASP security guidelines",
-            "Conduct regular penetration testing"
-        ])
-        
-        return list(set(recommendations))  # Remove duplicates
-    
-    def print_report(self, report: Dict[str, Any]):
-        """Print a formatted security assessment report"""
-        print("📊 SECURITY ASSESSMENT REPORT")
-        print("=" * 60)
-        
-        # Summary
-        summary = report['summary']
-        print("🔍 EXECUTIVE SUMMARY")
-        print(f"   Tests Executed: {summary['total_tests_executed']}")
-        print(f"   Execution Time: {summary['total_execution_time']:.2f} seconds")
-        print(f"   Total Vulnerabilities: {summary['total_vulnerabilities_found']}")
-        print()
-        
-        # Vulnerability breakdown
-        print("🚨 VULNERABILITY BREAKDOWN")
-        print(f"   🔴 Critical: {summary['critical_vulnerabilities']}")
-        print(f"   🟠 High: {summary['high_vulnerabilities']}")
-        print(f"   🟡 Medium: {summary['medium_vulnerabilities']}")
-        print(f"   🟢 Low: {summary['low_vulnerabilities']}")
-        print()
-        
-        # Vulnerability types
-        if report['vulnerabilities_by_type']:
-            print("📝 VULNERABILITY TYPES FOUND")
-            for vuln_type, vulns in report['vulnerabilities_by_type'].items():
-                print(f"   {vuln_type}: {len(vulns)} instances")
-                for vuln in vulns[:3]:  # Show first 3 of each type
-                    print(f"     - {vuln.get('tool', 'Unknown')}: {vuln.get('evidence', 'No details')[:80]}...")
-            print()
-        
-        # Tools performance
-        print("🛠️  TOOLS PERFORMANCE")
-        for tool_name, performance in report['tools_performance'].items():
-            success_rate_pct = performance['success_rate'] * 100
-            avg_time = performance['total_time'] / performance['executions']
-            print(f"   {tool_name}:")
-            print(f"     Executions: {performance['executions']}")
-            print(f"     Success Rate: {success_rate_pct:.1f}%")
-            print(f"     Avg Time: {avg_time:.2f}s")
-            print(f"     Vulnerabilities Found: {performance['vulnerabilities_found']}")
-        print()
-        
-        # Recommendations
-        print("💡 SECURITY RECOMMENDATIONS")
-        for i, rec in enumerate(report['recommendations'][:10], 1):  # Show top 10
-            print(f"   {i}. {rec}")
-        print()
-    
-    def save_report(self, report: Dict[str, Any], filename: str = None):
-        """Save the security report to a JSON file"""
-        if not filename:
-            timestamp = int(time.time())
-            filename = f"security_report_{timestamp}.json"
-        
-        # Convert ToolResult objects to dictionaries for JSON serialization
-        serializable_report = self._make_serializable(report)
-        
-        with open(filename, 'w') as f:
-            json.dump(serializable_report, f, indent=2, default=str)
-        
-        print(f"📄 Report saved to: {filename}")
-    
-    def _make_serializable(self, obj):
-        """Convert objects to JSON-serializable format"""
-        if isinstance(obj, dict):
-            return {k: self._make_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [self._make_serializable(item) for item in obj]
-        elif hasattr(obj, '__dict__'):
-            return self._make_serializable(obj.__dict__)
-        else:
-            return obj
-
-
-async def demo_penetration_testing():
-    """Demonstrate the complete penetration testing workflow"""
-    
-    # Sample target data (as would be extracted from a real application)
-    sample_target_data = """
-Summarized HTML:
-<html>
-<head>
-    <title>VulnBank - Vulnerable Banking Application</title>
-    <meta name="generator" content="PHP/7.4.3">
-</head>
-<body>
-    <!-- Login Form - Potential SQL Injection -->
-    <form action="/auth/login" method="POST" id="loginForm">
-        <input type="text" name="username" placeholder="Username" required>
-        <input type="password" name="password" placeholder="Password" required>
-        <input type="submit" value="Login">
-    </form>
-    
-    <!-- Search - Potential XSS -->
-    <form action="/search" method="GET">
-        <input type="text" name="q" placeholder="Search...">
-        <input type="submit" value="Search">
-    </form>
-    
-    <!-- File Upload - Potential RCE -->
-    <form action="/upload/document" method="POST" enctype="multipart/form-data">
-        <input type="file" name="document">
-        <input type="submit" value="Upload">
-    </form>
-    
-    <!-- API Documentation Link -->
-    <a href="/api/v1/docs">API Documentation</a>
-    <a href="/admin/dashboard">Admin Panel</a>
-</body>
-</html>
-
-Application Fingerprinting:
-- Links: ['/dashboard', '/admin/dashboard', '/profile', '/api/v1/docs', '/logout']
-- Forms: [
-    {'action': '/auth/login', 'method': 'POST', 'fields': ['username', 'password']},
-    {'action': '/search', 'method': 'GET', 'fields': ['q']},
-    {'action': '/upload/document', 'method': 'POST', 'fields': ['document']}
-]
-- Technologies: ['PHP/7.4.3', 'Apache/2.4.41', 'MySQL']
-
-Request and Response Data:
-- Request: GET / HTTP/1.1
-- Response: HTTP/1.1 200 OK, Server: Apache/2.4.41, X-Powered-By: PHP/7.4.3
-- API endpoints: ['/api/v1/users', '/api/v1/accounts', '/api/v1/transactions']
-
-Security Headers Analysis:
-- Missing: Content-Security-Policy, X-Frame-Options, X-Content-Type-Options
-- Present: Strict-Transport-Security (max-age=31536000)
-
-Path Analysis:
-- Accessible: ['/admin/', '/api/', '/config/', '/phpinfo.php', '/.git/']
-- Sensitive files: ['/.env', '/config.php', '/backup.sql']
-"""
-
-    # Initialize the orchestrator
-    orchestrator = PenetrationTestingOrchestrator({
-        'timeout': 60,
-        'output_dir': './pentest_results'
-    })
-    
-    # Run comprehensive security test
-    print("🚀 Starting Project Heimdall Penetration Testing Demo")
-    print("=" * 60)
-    
-    report = await orchestrator.run_comprehensive_security_test(sample_target_data)
-    
-    # Display results
-    orchestrator.print_report(report)
-    
-    # Save report
-    orchestrator.save_report(report, "heimdall_demo_report.json")
-    
-    print("🎉 Penetration testing demo completed!")
-    print("\nThis demonstrates how Project Heimdall integrates:")
-    print("✅ PlannerAgent - AI-powered test plan generation using Gemini LLM")
-    print("✅ ToolCall System - Automated execution of security tools")
-    print("✅ Multiple Security Tools - SQLMap, Nmap, Nikto, OWASP ZAP, Browser automation")
-    print("✅ Intelligent Tool Selection - Based on plan content and keywords")
-    print("✅ Comprehensive Reporting - Vulnerabilities, recommendations, performance metrics")
-
-
-if __name__ == "__main__":
-    print("🔒 Project Heimdall - Penetration Testing Integration Demo")
-    print("=" * 60)
-    print("This script demonstrates the integration between:")
-    print("• PlannerAgent: AI-powered security test plan generation")
-    print("• ToolCall System: Automated security tool execution")
-    print("• Multiple Security Tools: SQLMap, OWASP ZAP, Nmap, Nikto, etc.")
-    print("• Browser Automation: Playwright-based dynamic testing")
-    print("• Comprehensive Reporting: Vulnerability analysis and recommendations")
+    print("=" * 80)
+    print("SECURITY ANALYSIS ORCHESTRATION - PHASE 2")
+    print("=" * 80)
+    print(f"Base URL: {base_url}")
+    print(f"Expand Scope: {expand_scope}")
+    print(f"Max Iterations per Plan: {max_iterations}")
     print()
     
-    # Run the demo
-    asyncio.run(demo_penetration_testing()) 
+    # Initialize URL queue with starting URL
+    urls_to_parse = [base_url]
+    visited_urls = set()
+    
+    # Initialize agents and tools
+    print("Initializing agents and tools...")
+    try:
+        web_proxy = WebProxy(starting_url=base_url)
+        browser, context, page, playwright = web_proxy.create_proxy()
+        planner = PlannerAgent(desc="Security test planner for orchestration phase 2")
+        actioner = ActionerAgent(desc="Security test executor for orchestration phase 2")
+        context_manager = ContextManagerAgent(desc="Context management for orchestration phase 2")
+        print("✓ All agents and tools initialized successfully")
+        print()
+    except Exception as e:
+        print(f"✗ Failed to initialize: {str(e)}")
+        return
+    
+    all_findings = []
+    
+    try:
+        # OUTER LOOP (URL Processing)
+        while urls_to_parse:
+            url = urls_to_parse.pop(0)
+            
+            # Skip if already visited
+            if url in visited_urls:
+                continue
+                
+            visited_urls.add(url)
+            
+            print("=" * 60)
+            print(f"ANALYZING URL: {url}")
+            print("=" * 60)
+            
+            try:
+                # Scan current URL to extract page content and structure
+                print(f"Navigating to: {url}")
+                page.goto(url, wait_until='networkidle', timeout=100000)
+                print(f"✓ Successfully navigated to {url}")
+                print(f"✓ Page title: {page.title()}")
+                
+                # Wait for dynamic content
+                time.sleep(2)
+                
+                # Extract page data
+                print("Extracting page data...")
+                extractor = PageDataExtractor(page)
+                raw_page_data = extractor.extract_page_data()
+                print(f"✓ Page data extracted ({len(raw_page_data)} characters)")
+                
+                # Parse discovered URLs from page content
+                if expand_scope:
+                    print("Processing discovered links...")
+                    new_links_count = 0
+                    
+                    # Extract links using the same logic as before
+                    if hasattr(extractor, 'links') and extractor.links:
+                        for link_info in extractor.links:
+                            link_url = link_info.get('url', '')
+                            
+                            if link_url and _is_same_domain(base_url, link_url):
+                                if link_url not in visited_urls and link_url not in urls_to_parse:
+                                    urls_to_parse.append(link_url)
+                                    new_links_count += 1
+                                    print(f"  + Added: {link_url}")
+                    else:
+                        # Fallback link extraction
+                        links_match = re.search(r"Links: \[(.*?)\]", raw_page_data)
+                        if links_match:
+                            links_str = links_match.group(1)
+                            fallback_links = re.findall(r"'([^']+)'", links_str)
+                            
+                            for link_url in fallback_links:
+                                if link_url and _is_same_domain(base_url, link_url):
+                                    if link_url not in visited_urls and link_url not in urls_to_parse:
+                                        urls_to_parse.append(link_url)
+                                        new_links_count += 1
+                                        print(f"  + Added (fallback): {link_url}")
+                    
+                    print(f"✓ Added {new_links_count} new links to scan queue")
+                
+                # Summarize page content to reduce token usage
+                print("Summarizing page content...")
+                summarized_page_data = context_manager.summarize_page_source(raw_page_data, url)
+                page_data_context = f"URL: {url}\n\nSUMMARIZED PAGE ANALYSIS:\n{summarized_page_data}"
+                
+                # Check context stats
+                context_stats = context_manager.get_context_stats(page_data_context)
+                print(f"✓ Page data summarized (Tokens: ~{context_stats['estimated_tokens']})")
+                total_token_counter += context_stats['estimated_tokens']
+                
+                # PLANNER: Generate security test plans for current URL
+                print("Generating security test plans...")
+                plans = planner.plan(raw_page_data)
+                print(f"✓ Generated {len(plans)} security test plans")
+                
+                # Display all plans to user
+                _print_plans_for_url(url, plans)
+                
+                # MIDDLE LOOP (Plan Steps Execution)
+                for plan_idx, plan in enumerate(plans, 1):
+                    print("=" * 50)
+                    print(f"EXECUTING PLAN {plan_idx}/{len(plans)}: {plan.get('title', 'Untitled Plan')}")
+                    print("=" * 50)
+                    
+                    # Reset conversation history to initial messages (no system prompt needed - handled by ActionerAgent)
+                    conversation_history = [
+                        {"role": "user", "content": page_data_context}
+                    ]
+                    
+                    # Add tool context and plan-specific instructions to history
+                    plan_instructions = f"SECURITY TEST PLAN:\nTitle: {plan.get('title', 'Security Test')}\nDescription: {plan.get('description', 'Perform security testing')}\n\nExecute this plan using the available security testing tools."
+                    conversation_history.append({"role": "user", "content": plan_instructions})
+                    
+                    iteration_counter = 0
+                    plan_findings = []
+                    
+                    # INNER LOOP (Action Execution)
+                    while iteration_counter < max_iterations:
+                        print(f"\n--- Action Iteration {iteration_counter + 1}/{max_iterations} ---")
+                        
+                        # Manage conversation history length
+                        if len(conversation_history) > keep_messages:
+                            print("Managing conversation history length...")
+                            # Preserve first 2 critical messages (page context + plan instructions)
+                            critical_messages = conversation_history[:2]
+                            recent_messages = conversation_history[-(keep_messages-2):]
+                            
+                            # Summarize middle portion
+                            middle_portion = conversation_history[2:-(keep_messages-2)]
+                            if middle_portion:
+                                summarized_middle = context_manager.summarize_conversation(middle_portion)
+                                # Reconstruct history
+                                conversation_history = critical_messages + summarized_middle + recent_messages
+                            else:
+                                conversation_history = critical_messages + recent_messages
+                        
+                        # Count tokens in current history
+                        history_text = "\n".join([msg["content"] for msg in conversation_history])
+                        history_stats = context_manager.get_context_stats(history_text)
+                        print(f"History tokens: ~{history_stats['estimated_tokens']}")
+                        total_token_counter += history_stats['estimated_tokens']
+                        
+                        # Send history to LLM for next action decision
+                        print("Generating next security action...")
+                        try:
+                            # ACTIONER: Generate action using actioner
+                            actioner_response = actioner.generate_action_of_plan_step(
+                                plan=plan,
+                                page_data=page_data_context,
+                                tool_output="",
+                                conversation_history=[msg["content"] for msg in conversation_history]
+                            )
+                            
+                            discussion = actioner_response.get('discussion', '')
+                            action_command = actioner_response.get('action', '')
+                            
+                            print(f"Action Discussion: {discussion}")
+                            print(f"Action Command: {action_command}")
+                            
+                            # Execute action command (simulated for now)
+                            action_output = _execute_action_command(action_command, page)
+                            print(f"Action Output: {action_output}")
+                            
+                            # Capture action result and summarize for context
+                            summarized_action_result = context_manager.summarize(
+                                llm_response=discussion,
+                                tool_use=action_command,
+                                tool_output=action_output
+                            )
+                            
+                            # Append to conversation history
+                            conversation_history.append({"role": "assistant", "content": discussion})
+                            conversation_history.append({"role": "user", "content": f"Action Result: {summarized_action_result}"})
+                            
+                            # Check if action indicates completion
+                            if "complete()" in action_command.lower() or "completed" in action_output.lower():
+                                print("Plan execution completed.")
+                                
+                                # Analyze conversation for security findings
+                                findings = _analyze_conversation_for_findings(conversation_history)
+                                plan_findings.extend(findings)
+                                
+                                if findings:
+                                    print(f"✓ Security findings detected: {len(findings)}")
+                                    for finding in findings:
+                                        print(f"  - {finding}")
+                                    break
+                                else:
+                                    print("No security findings detected, continuing...")
+                            
+                            # Capture network traffic context (placeholder)
+                            network_context = f"Network activity captured for iteration {iteration_counter + 1}"
+                            conversation_history.append({"role": "user", "content": network_context})
+                            
+                        except Exception as e:
+                            print(f"Error in action execution: {str(e)}")
+                            error_context = f"Error occurred: {str(e)}"
+                            conversation_history.append({"role": "user", "content": error_context})
+                        
+                        iteration_counter += 1
+                        
+                        # Brief pause between iterations
+                        time.sleep(1)
+                    
+                    # Store plan findings
+                    all_findings.extend(plan_findings)
+                    print(f"Plan {plan_idx} completed with {len(plan_findings)} findings")
+                
+                print(f"✓ URL analysis complete. Total findings so far: {len(all_findings)}")
+                
+            except Exception as e:
+                print(f"✗ Error analyzing {url}: {str(e)}")
+                continue
+    
+    finally:
+        # Clean up browser resources
+        try:
+            print("Cleaning up browser resources...")
+            context.close()
+            browser.close()
+            playwright.stop()
+            print("✓ Browser resources cleaned up")
+        except Exception as e:
+            print(f"Warning: Error during cleanup: {str(e)}")
+    
+    # FINALIZE: Generate summary of all findings
+    print()
+    print("=" * 80)
+    print("ORCHESTRATION COMPLETE - FINAL SUMMARY")
+    print("=" * 80)
+    print(f"Total URLs analyzed: {len(visited_urls)}")
+    print(f"Remaining URLs in queue: {len(urls_to_parse)}")
+    print(f"Total tokens used: ~{total_token_counter}")
+    print(f"Total security findings: {len(all_findings)}")
+    
+    if all_findings:
+        print("\n🔍 SECURITY FINDINGS SUMMARY:")
+        print("-" * 40)
+        for i, finding in enumerate(all_findings, 1):
+            print(f"{i}. {finding}")
+    else:
+        print("\n❌ No security vulnerabilities detected in this assessment.")
+
+def _execute_action_command(action_command: str, page) -> str:
+    """
+    Execute the action command and return the result.
+    This is a simplified version for the orchestration framework.
+    """
+    try:
+        # Parse the action command
+        if action_command.startswith('goto('):
+            # Extract URL from goto command
+            url_match = re.search(r'goto\s*\(\s*page\s*,\s*["\']([^"\']*)["\']', action_command)
+            if url_match:
+                target_url = url_match.group(1)
+                if target_url.startswith('/'):
+                    # Relative URL, construct full URL
+                    current_url = page.url
+                    base_url = f"{urlparse(current_url).scheme}://{urlparse(current_url).netloc}"
+                    full_url = urljoin(base_url, target_url)
+                else:
+                    full_url = target_url
+                
+                page.goto(full_url, wait_until='networkidle', timeout=10000)
+                return f"Successfully navigated to {full_url}. Page title: {page.title()}"
+            else:
+                return "Error: Could not parse URL from goto command"
+        
+        elif action_command.startswith('click('):
+            # Extract selector from click command
+            selector_match = re.search(r'click\s*\(\s*page\s*,\s*["\']([^"\']*)["\']', action_command)
+            if selector_match:
+                selector = selector_match.group(1)
+                element = page.query_selector(selector)
+                if element:
+                    element.click()
+                    return f"Successfully clicked element: {selector}"
+                else:
+                    return f"Element not found: {selector}"
+            else:
+                return "Error: Could not parse selector from click command"
+        
+        elif action_command.startswith('execute_js('):
+            # Extract JavaScript from execute_js command
+            js_match = re.search(r'execute_js\s*\(\s*page\s*,\s*["\']([^"\']*)["\']', action_command)
+            if js_match:
+                js_code = js_match.group(1)
+                result = page.evaluate(js_code)
+                return f"JavaScript executed. Result: {str(result)[:200]}"
+            else:
+                return "Error: Could not parse JavaScript from execute_js command"
+        
+        elif action_command.startswith('complete('):
+            return "Completed"
+        
+        else:
+            return f"Action command not implemented: {action_command}"
+    
+    except Exception as e:
+        return f"Error executing action: {str(e)}"
+
+def _analyze_conversation_for_findings(conversation_history) -> list:
+    """
+    Analyze conversation history to detect security findings.
+    Returns a list of detected security issues.
+    """
+    findings = []
+    
+    # Convert conversation to text for analysis
+    conversation_text = "\n".join([msg["content"] for msg in conversation_history])
+    
+    # Look for security indicators
+    security_indicators = [
+        ("SQL Injection", ["sql error", "mysql error", "postgresql error", "syntax error", "union select"]),
+        ("XSS Vulnerability", ["script>alert", "javascript:", "onerror=", "xss", "cross-site scripting"]),
+        ("Authentication Bypass", ["login bypass", "admin access", "unauthorized access", "session hijack"]),
+        ("Information Disclosure", ["debug info", "stack trace", "error message", "database schema", "version info"]),
+        ("Authorization Flaw", ["privilege escalation", "idor", "access control", "unauthorized operation"]),
+        ("CSRF Vulnerability", ["csrf token missing", "cross-site request", "state changing operation"])
+    ]
+    
+    for vulnerability_type, indicators in security_indicators:
+        for indicator in indicators:
+            if indicator.lower() in conversation_text.lower():
+                findings.append(f"{vulnerability_type}: {indicator} detected")
+                break  # Only add each vulnerability type once per conversation
+    
+    return findings
+
+def _is_same_domain(base_url: str, link_url: str) -> bool:
+    """Check if the link URL is from the exact same domain as the base URL (excludes subdomains)."""
+    try:
+        base_domain = urlparse(base_url).netloc
+        link_domain = urlparse(link_url).netloc
+        
+        # Only allow exact domain match, not subdomains
+        return base_domain == link_domain
+    except Exception:
+        return False
+
+def _print_plans_for_url(url: str, plans: list):
+    """Print security test plans for a URL in a structured format."""
+    print("🔍 SECURITY TEST PLANS")
+    print("-" * 40)
+    print(f"URL: {url}")
+    print(f"Plans Generated: {len(plans)}")
+    print()
+    
+    if not plans:
+        print("❌ No security test plans generated for this URL")
+        print()
+        return
+    
+    for i, plan in enumerate(plans, 1):
+        title = plan.get('title', 'Untitled Plan')
+        description = plan.get('description', 'No description available')
+        
+        print(f"📋 Plan {i}: {title}")
+        print(f"   Description: {description}")
+        print()
+    
+    print("-" * 40)
+    print()
+
+def main():
+    try:
+        run_orchestration()
+    except KeyboardInterrupt:
+        print("\nOrchestration interrupted by user")
+    except Exception as e:
+        print(f"Orchestration failed: {str(e)}")
+
+if __name__ == "__main__":
+    main()
