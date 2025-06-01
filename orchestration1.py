@@ -1,113 +1,152 @@
-# Page Data extraction and planner+summarizer orchestration
+#AVINIERNOTES: 1st Phase of Orchestration: Page Data extraction and Planner testing.
+#              So only pagedata_extraction and plans printed.
 
 import sys
 import time
+import re
+from urllib.parse import urljoin, urlparse
 from tools.webproxy import WebProxy
 from tools.pagedata_extractor import PageDataExtractor
-from agents.planner import Planner
+from agents.planner import PlannerAgent
 
-class SimpleLogger:
-    """Simple logger for the orchestration script."""
-    
-    def info(self, message, color=None):
-        """Log info message with optional color."""
-        print(f"[INFO] {message}")
-
-def orchestrate_security_analysis(target_url: str):
+def run_orchestration():
     """
-    Orchestrate the complete security analysis flow.
+    Run the complete security analysis orchestration.
     
-    Args:
-        target_url: The URL to analyze
+    Steps:
+    1. Define base URL to be tested
+    2. Initialize urls_to_parse array
+    3. Run pagedata_extractor.py
+    4. Add found links to the array
+    5. While loop: visit URLs, generate plans, print results
     """
-    logger = SimpleLogger()
     
-    print("=" * 60)
+    # Step 1: Base URL to be tested
+    base_url = "https://github.com/Avinier"  # Change this to your target URL
+    
+    print("=" * 80)
     print("SECURITY ANALYSIS ORCHESTRATION")
-    print("=" * 60)
-    print(f"Target URL: {target_url}")
+    print("=" * 80)
+    print(f"Base URL: {base_url}")
     print()
     
-    # Step 1: Initialize Web Proxy and Browser
-    print("Step 1: Initializing Web Proxy and Browser...")
+    # Step 2: URLs to parse array
+    urls_to_parse = [base_url]
+    visited_urls = set()
+    
+    # Initialize browser and planner
+    print("Initializing browser and planner...")
     try:
-        web_proxy = WebProxy(starting_url=target_url, logger=logger)
+        web_proxy = WebProxy(starting_url=base_url)
         browser, context, page, playwright = web_proxy.create_proxy()
-        print("✓ Browser initialized successfully")
+        planner = PlannerAgent(desc="Testing planner for first phase of orchestration")
+        print("✓ Browser and planner initialized successfully")
         print()
     except Exception as e:
-        print(f"✗ Failed to initialize browser: {str(e)}")
+        print(f"✗ Failed to initialize: {str(e)}")
         return
     
     try:
-        # Step 2: Navigate to target URL
-        print("Step 2: Navigating to target URL...")
-        page.goto(target_url, wait_until='networkidle', timeout=30000)
-        print(f"✓ Successfully navigated to {target_url}")
-        print(f"✓ Page title: {page.title()}")
-        print()
-        
-        # Wait a moment for any dynamic content to load
-        time.sleep(2)
-        
-        # Step 3: Extract Page Data
-        print("Step 3: Extracting page data...")
-        extractor = PageDataExtractor(page)
-        page_data = extractor.extract_page_data()
-        print("✓ Page data extracted successfully")
-        print(f"✓ Data length: {len(page_data)} characters")
-        print()
-        
-        # Step 4: Generate Security Test Plans
-        print("Step 4: Generating security test plans...")
-        planner = Planner(desc="Security analysis planner")
-        security_plans = planner.plan(page_data)
-        print(f"✓ Generated {len(security_plans)} security test plans")
-        print()
-        
-        # Step 5: Display Results
-        print("=" * 60)
-        print("EXTRACTED PAGE DATA")
-        print("=" * 60)
-        print(page_data)
-        print()
-        
-        print("=" * 60)
-        print("GENERATED SECURITY TEST PLANS")
-        print("=" * 60)
-        
-        if security_plans:
-            for i, plan in enumerate(security_plans, 1):
-                print(f"{i}. {plan['title']}")
-                print(f"   Description: {plan['description']}")
+        # Step 5: While loop to process URLs
+        while urls_to_parse:
+            # Visit the URL and start scanning it
+            url = urls_to_parse.pop(0)
+            
+            # Skip if already visited
+            if url in visited_urls:
+                continue
+                
+            visited_urls.add(url)
+            
+            print("=" * 60)
+            print(f"ANALYZING URL: {url}")
+            print("=" * 60)
+            
+            try:
+                # Navigate to the URL
+                print(f"Navigating to: {url}")
+                page.goto(url, wait_until='networkidle', timeout=30000)
+                print(f"✓ Successfully navigated to {url}")
+                print(f"✓ Page title: {page.title()}")
+                
+                # Wait for dynamic content
+                time.sleep(2)
+                
+                # Step 3: Run pagedata_extractor.py
+                print("Extracting page data...")
+                extractor = PageDataExtractor(page)
+                page_data = extractor.extract_page_data()
+                print(f"✓ Page data extracted ({len(page_data)} characters)")
+                
+                # Step 4: Add found links to the array
+                print("Processing discovered links...")
+                new_links_count = 0
+                
+                # Debug: Print extractor attributes
+                print(f"  Debug: extractor.links exists: {hasattr(extractor, 'links')}")
+                if hasattr(extractor, 'links'):
+                    print(f"  Debug: Number of links found: {len(extractor.links)}")
+                    print(f"  Debug: First few links: {extractor.links[:3] if extractor.links else 'None'}")
+                
+                # Extract links from the page data
+                if hasattr(extractor, 'links') and extractor.links:
+                    for link_info in extractor.links:
+                        link_url = link_info.get('url', '')
+                        
+                        # Only add links from the same domain
+                        if link_url and _is_same_domain(base_url, link_url):
+                            if link_url not in visited_urls and link_url not in urls_to_parse:
+                                urls_to_parse.append(link_url)
+                                new_links_count += 1
+                                print(f"  + Added: {link_url}")
+                        else:
+                            if link_url:
+                                print(f"  - Skipped (different domain): {link_url}")
+                else:
+                    # Fallback: Try to extract links from the formatted page data
+                    print("  Fallback: Extracting links from formatted page data...")
+                    try:
+                        # Look for the Links: [...] pattern in the formatted data
+                        links_match = re.search(r"Links: \[(.*?)\]", page_data)
+                        if links_match:
+                            links_str = links_match.group(1)
+                            # Extract URLs from the string (they're in single quotes)
+                            fallback_links = re.findall(r"'([^']+)'", links_str)
+                            print(f"  Debug: Found {len(fallback_links)} links via fallback method")
+                            
+                            for link_url in fallback_links:
+                                # Only add links from the same domain
+                                if link_url and _is_same_domain(base_url, link_url):
+                                    if link_url not in visited_urls and link_url not in urls_to_parse:
+                                        urls_to_parse.append(link_url)
+                                        new_links_count += 1
+                                        print(f"  + Added (fallback): {link_url}")
+                                else:
+                                    if link_url:
+                                        print(f"  - Skipped (different domain, fallback): {link_url}")
+                        else:
+                            print("  No links found in formatted page data")
+                    except Exception as fallback_error:
+                        print(f"  Fallback link extraction failed: {str(fallback_error)}")
+                
+                print(f"✓ Added {new_links_count} new links to scan queue")
+                print(f"✓ Queue size: {len(urls_to_parse)}, Visited: {len(visited_urls)}")
                 print()
-        else:
-            print("No security test plans were generated.")
-        
-        # Step 6: Display Network Traffic (if any was captured)
-        print("=" * 60)
-        print("CAPTURED NETWORK TRAFFIC")
-        print("=" * 60)
-        
-        network_data = web_proxy.get_network_data()
-        if network_data['requests']:
-            print(f"Captured {len(network_data['requests'])} requests")
-            traffic_summary = web_proxy.pretty_print_traffic()
-            if traffic_summary:
-                print(traffic_summary)
-            else:
-                print("No detailed traffic data available")
-        else:
-            print("No network traffic was captured during the analysis")
-        
-        print()
-        print("=" * 60)
-        print("ANALYSIS COMPLETE")
-        print("=" * 60)
-        
-    except Exception as e:
-        print(f"✗ Error during analysis: {str(e)}")
-        
+                
+                # Generate plan for current URL
+                print("Generating security test plans...")
+                plans = planner.plan(page_data)
+                print(f"✓ Generated {len(plans)} security test plans")
+                print()
+                
+                # Print plans in structured format
+                _print_plans_for_url(url, plans)
+                
+            except Exception as e:
+                print(f"✗ Error analyzing {url}: {str(e)}")
+                print()
+                continue
+    
     finally:
         # Clean up browser resources
         try:
@@ -118,33 +157,54 @@ def orchestrate_security_analysis(target_url: str):
             print("✓ Browser resources cleaned up")
         except Exception as e:
             print(f"Warning: Error during cleanup: {str(e)}")
+    
+    print()
+    print("=" * 80)
+    print("ORCHESTRATION COMPLETE")
+    print("=" * 80)
+    print(f"Total URLs analyzed: {len(visited_urls)}")
+    print(f"Remaining URLs in queue: {len(urls_to_parse)}")
+
+def _is_same_domain(base_url: str, link_url: str) -> bool:
+    """Check if the link URL is from the exact same domain as the base URL (excludes subdomains)."""
+    try:
+        base_domain = urlparse(base_url).netloc
+        link_domain = urlparse(link_url).netloc
+        
+        # Only allow exact domain match, not subdomains
+        return base_domain == link_domain
+    except Exception:
+        return False
+
+def _print_plans_for_url(url: str, plans: list):
+    """Print security test plans for a URL in a structured format."""
+    print("🔍 SECURITY TEST PLANS")
+    print("-" * 40)
+    print(f"URL: {url}")
+    print(f"Plans Generated: {len(plans)}")
+    print()
+    
+    if not plans:
+        print("❌ No security test plans generated for this URL")
+        print()
+        return
+    
+    for i, plan in enumerate(plans, 1):
+        title = plan.get('title', 'Untitled Plan')
+        description = plan.get('description', 'No description available')
+        
+        print(f"📋 Plan {i}: {title}")
+        print(f"   Description: {description}")
+        print()
+    
+    print("-" * 40)
+    print()
 
 def main():
-    """Main function to run the orchestration."""
-    
-    # Default test URL - can be changed for different targets
-    default_url = "https://httpbin.org/forms/post"
-    
-    # Check if URL provided as command line argument
-    if len(sys.argv) > 1:
-        target_url = sys.argv[1]
-    else:
-        target_url = default_url
-        print(f"No URL provided, using default: {default_url}")
-        print("Usage: python orchestration1.py <target_url>")
-        print()
-    
-    # Validate URL format
-    if not target_url.startswith(('http://', 'https://')):
-        target_url = 'https://' + target_url
-        print(f"Added https:// prefix: {target_url}")
-        print()
-    
-    # Run the orchestration
     try:
-        orchestrate_security_analysis(target_url)
+        run_orchestration()
     except KeyboardInterrupt:
-        print("\nAnalysis interrupted by user")
+        print("\nOrchestration interrupted by user")
     except Exception as e:
         print(f"Orchestration failed: {str(e)}")
 

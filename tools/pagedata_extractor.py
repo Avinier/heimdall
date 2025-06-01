@@ -9,9 +9,9 @@ from playwright.sync_api import Page
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
-from webproxy import WebProxy
+from tools.webproxy import WebProxy
 
-#AVINIERNOTES: this file handles the reconnaisance phase of the attack.
+#AVINIERNOTES: this file handles the reconnaisance phase of the attack. No subdomain enumeration added
 class PageDataExtractor:
     """
     Extracts comprehensive page data from a Playwright page for security analysis.
@@ -72,7 +72,7 @@ class PageDataExtractor:
             self._extract_api_calls()
             # Follow redirects and analyze additional pages
             self._follow_redirects()
-            # Perform reconnaissance
+            # Perform reconnaissance (without subdomain enumeration)
             self._perform_reconnaissance()
             
             # Format and return the data
@@ -738,117 +738,22 @@ class PageDataExtractor:
             self.redirect_data = {'redirects': [], 'accessible_paths': [], 'additional_apis': []}
     
     def _perform_reconnaissance(self):
-        """Perform comprehensive reconnaissance including subdomain enumeration and technology detection."""
+        """Perform comprehensive reconnaissance including technology detection."""
         try:
             print("Performing reconnaissance...")
             
             self.recon_data = {
-                'subdomains': [],
                 'technologies': [],
                 'security_headers': {},
                 'dns_info': {}
             }
             
-            # Method 1: Subdomain Enumeration
-            self._enumerate_subdomains()
-            
-            # Method 2: Technology Detection
+            # Technology Detection only (subdomain enumeration removed)
             self._detect_technologies()
             
         except Exception as e:
             print(f"Error during reconnaissance: {str(e)}")
-            self.recon_data = {'subdomains': [], 'technologies': [], 'security_headers': {}, 'dns_info': {}}
-    
-    def _enumerate_subdomains(self):
-        """Enumerate subdomains using common patterns and certificate transparency."""
-        try:
-            domain = urlparse(self.current_url).netloc
-            
-            # Remove www if present
-            if domain.startswith('www.'):
-                domain = domain[4:]
-            
-            print(f"Enumerating subdomains for {domain}...")
-            
-            # Common subdomain patterns
-            common_subdomains = [
-                'www', 'api', 'admin', 'test', 'dev', 'staging', 'beta', 'demo',
-                'mail', 'ftp', 'blog', 'shop', 'store', 'support', 'help',
-                'docs', 'portal', 'app', 'mobile', 'secure', 'vpn', 'cdn',
-                'static', 'assets', 'media', 'images', 'files', 'download',
-                'login', 'auth', 'sso', 'oauth', 'api-v1', 'api-v2', 'v1', 'v2'
-            ]
-            
-            found_subdomains = []
-            
-            for subdomain in common_subdomains:
-                try:
-                    test_domain = f"{subdomain}.{domain}"
-                    test_url = f"https://{test_domain}"
-                    
-                    # Quick DNS resolution check
-                    response = requests.get(test_url, timeout=3, allow_redirects=False)
-                    
-                    if response.status_code < 400:  # Any successful response
-                        found_subdomains.append({
-                            'subdomain': test_domain,
-                            'status': response.status_code,
-                            'title': self._extract_title_from_response(response),
-                            'server': response.headers.get('server', ''),
-                            'technologies': self._detect_tech_from_headers(response.headers)
-                        })
-                        print(f"Found subdomain: {test_domain}")
-                        
-                except requests.RequestException:
-                    continue  # DNS resolution failed or connection error
-                except Exception:
-                    continue
-            
-            # Try Certificate Transparency logs (simplified approach)
-            try:
-                ct_url = f"https://crt.sh/?q=%.{domain}&output=json"
-                ct_response = requests.get(ct_url, timeout=10)
-                
-                if ct_response.status_code == 200:
-                    ct_data = ct_response.json()
-                    ct_subdomains = set()
-                    
-                    for entry in ct_data[:50]:  # Limit to first 50 entries
-                        name = entry.get('name_value', '')
-                        if name and '.' in name and domain in name:
-                            # Clean up the domain name
-                            clean_name = name.strip().lower()
-                            if not clean_name.startswith('*') and clean_name.endswith(domain):
-                                ct_subdomains.add(clean_name)
-                    
-                    # Test a few CT-discovered subdomains
-                    for ct_subdomain in list(ct_subdomains)[:10]:
-                        if ct_subdomain not in [sub['subdomain'] for sub in found_subdomains]:
-                            try:
-                                test_url = f"https://{ct_subdomain}"
-                                response = requests.get(test_url, timeout=3, allow_redirects=False)
-                                
-                                if response.status_code < 400:
-                                    found_subdomains.append({
-                                        'subdomain': ct_subdomain,
-                                        'status': response.status_code,
-                                        'title': self._extract_title_from_response(response),
-                                        'server': response.headers.get('server', ''),
-                                        'source': 'certificate_transparency'
-                                    })
-                                    print(f"Found CT subdomain: {ct_subdomain}")
-                                    
-                            except requests.RequestException:
-                                continue
-                                
-            except Exception as e:
-                print(f"Certificate Transparency lookup failed: {str(e)}")
-            
-            self.recon_data['subdomains'] = found_subdomains[:15]  # Limit results
-            
-        except Exception as e:
-            print(f"Error enumerating subdomains: {str(e)}")
-            self.recon_data['subdomains'] = []
+            self.recon_data = {'technologies': [], 'security_headers': {}, 'dns_info': {}}
     
     def _detect_technologies(self):
         """Detect technologies used by the website."""
@@ -981,24 +886,6 @@ class PageDataExtractor:
             self.recon_data['technologies'] = []
             self.recon_data['security_headers'] = {}
     
-    def _extract_title_from_response(self, response):
-        """Extract title from HTTP response."""
-        try:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            title_tag = soup.find('title')
-            return title_tag.text.strip() if title_tag else ''
-        except:
-            return ''
-    
-    def _detect_tech_from_headers(self, headers):
-        """Detect technologies from HTTP headers."""
-        tech = []
-        if 'server' in headers:
-            tech.append(headers['server'])
-        if 'x-powered-by' in headers:
-            tech.append(headers['x-powered-by'])
-        return tech
-    
     def _format_page_data(self) -> str:
         try:
             # Format links
@@ -1020,13 +907,11 @@ class PageDataExtractor:
             # Format reconnaissance data
             recon_summary = ""
             if hasattr(self, 'recon_data'):
-                subdomains = [sub['subdomain'] for sub in self.recon_data.get('subdomains', [])]
                 technologies = [tech['name'] for tech in self.recon_data.get('technologies', [])]
                 security_headers = [name for name, data in self.recon_data.get('security_headers', {}).items() if data.get('present')]
                 
                 recon_summary = f"""
                 Reconnaissance Data:
-                - Subdomains Found: {subdomains[:10]}
                 - Technologies Detected: {technologies}
                 - Security Headers Present: {security_headers}"""
             

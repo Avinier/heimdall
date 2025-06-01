@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from playwright.sync_api import Page
 from playwright.async_api import async_playwright, Browser, Page as AsyncPage
 import logging
-from llms import LLM
+from tools.llms import LLM
 
 
 # Set up logging
@@ -46,15 +46,6 @@ class PlaywrightTools:
         self.async_page: Optional[AsyncPage] = None
         
     def execute_js(self, page: Page, js_code: str) -> str:
-        """Execute JavaScript code on the page.
-        
-        Args:
-            page: Playwright page object
-            js_code: JavaScript code to execute
-            
-        Returns:
-            Result of JavaScript evaluation
-        """
         # Validate and fix common JavaScript issues
         js_code = self._validate_and_fix_js_code(js_code)
         
@@ -74,14 +65,6 @@ class PlaywrightTools:
             raise
             
     def _validate_and_fix_js_code(self, js_code: str) -> str:
-        """Validate and fix common JavaScript issues.
-        
-        Args:
-            js_code: JavaScript code to validate and fix
-            
-        Returns:
-            Fixed JavaScript code
-        """
         # First, check for any nested tool calls and remove them
         # This prevents issues like execute_js(page, "execute_js(page, """)
         if re.search(r'(?:goto|click|fill|submit|execute_js|refresh|presskey)\s*\(', js_code):
@@ -122,76 +105,30 @@ class PlaywrightTools:
         return js_code
 
     def click(self, page: Page, css_selector: str) -> str:
-        """Click an element on the page.
-        
-        Args:
-            page: Playwright page object
-            css_selector: CSS selector for element to click
-            
-        Returns:
-            Page HTML after click
-        """
         page.click(css_selector, timeout=5000)
         # Count this as a security action (interaction with the page)
         self.security_actions_performed += 1
         return page.inner_html("html")
 
     def fill(self, page: Page, css_selector: str, value: str) -> str:
-        """Fill a form field.
-        
-        Args:
-            page: Playwright page object
-            css_selector: CSS selector for input field
-            value: Value to fill
-            
-        Returns:
-            Page HTML after filling
-        """
         page.fill(css_selector, value, timeout=5000)
         # Count this as a security action (form interaction is common for testing)
         self.security_actions_performed += 1
         return page.inner_html("html")
 
-    def submit(self, page: Page, css_selector: str) -> str:
-        """Submit a form by clicking an element.
-        
-        Args:
-            page: Playwright page object
-            css_selector: CSS selector for submit element
-            
-        Returns:
-            Page HTML after submission
-        """
+    def submit(self, page: Page, css_selector: str) -> str: 
         page.locator(css_selector).click()
         # Count this as a security action (form submission is critical for testing)
         self.security_actions_performed += 1
         return page.inner_html("html")
 
     def presskey(self, page: Page, key: str) -> str:
-        """Press a keyboard key.
-        
-        Args:
-            page: Playwright page object
-            key: Key to press
-            
-        Returns:
-            Page HTML after key press
-        """
         page.keyboard.press(key)
         # Count this as a security action
         self.security_actions_performed += 1
         return page.inner_html("html")
 
     def goto(self, page: Page, url: str) -> str:
-        """Navigate to a URL.
-        
-        Args:
-            page: Playwright page object
-            url: URL to navigate to
-            
-        Returns:
-            Page HTML after navigation
-        """
         # Define an expanded URL mapping for common keywords
         URL_MAPPING = {
             "documentation": "/docs/",
@@ -282,28 +219,12 @@ class PlaywrightTools:
                 raise
 
     def refresh(self, page: Page) -> str:
-        """Refresh the current page.
-        
-        Args:
-            page: Playwright page object
-            
-        Returns:
-            Page HTML after refresh
-        """
         page.reload()
         # Count this as a security action
         self.security_actions_performed += 1
         return page.inner_html("html")
 
     def python_interpreter(self, code: str) -> str:
-        """Execute Python code and capture output.
-        
-        Args:
-            code: Python code to execute
-            
-        Returns:
-            Output from code execution
-        """
         output_buffer = StringIO()
         old_stdout = sys.stdout
         sys.stdout = output_buffer
@@ -319,36 +240,16 @@ class PlaywrightTools:
             output_buffer.close()
 
     def get_user_input(self, prompt: str) -> str:
-        """Get input from user.
-        
-        Args:
-            prompt: Prompt to display to user
-            
-        Returns:
-            Confirmation message
-        """
         input(prompt)
         return "Input done!"
 
     def auth_needed(self) -> str:
-        """Prompt for user authentication.
-        
-        Returns:
-            Confirmation message
-        """
         input("Authentication needed. Please login and press enter to continue.")
         # Count this as a security action
         self.security_actions_performed += 1
         return "Authentication done!"
 
     def complete(self) -> str:
-        """Mark current task as complete with validation.
-        
-        Checks if sufficient security testing has been performed before allowing completion.
-        
-        Returns:
-            Completion message or rejection message
-        """
         if self.security_actions_performed < self.min_actions_required:
             # Not enough security testing was performed
             return "Completion rejected: Insufficient security testing performed. Please continue testing with more actions before marking complete."
@@ -357,15 +258,6 @@ class PlaywrightTools:
         return "Completed"
 
     def execute_tool(self, page: Page, tool_use: str):
-        """Execute a tool command.
-        
-        Args:
-            page: Playwright page object
-            tool_use: Tool command to execute
-            
-        Returns:
-            Result of tool execution or error message
-        """
         try:
             # Store the page object for this execution
             self.current_page = page
@@ -510,14 +402,6 @@ class PlaywrightTools:
         return func(*args)
     
     def _find_safe_comma_position(self, args_str):
-        """Find a safe position for the first comma that's not inside quotes or HTML tags.
-        
-        Args:
-            args_str: String containing argument values
-            
-        Returns:
-            Position of the first safe comma, or -1 if not found
-        """
         in_quotes = False
         quote_char = None
         bracket_depth = 0
@@ -554,14 +438,6 @@ class PlaywrightTools:
         return -1
         
     def _parse_arg_value(self, arg_str):
-        """Parse an argument string to its appropriate Python value.
-        
-        Args:
-            arg_str: String representation of the argument
-            
-        Returns:
-            Parsed argument value
-        """
         # Safety check for empty strings
         if not arg_str or arg_str.isspace():
             return ""
@@ -585,14 +461,6 @@ class PlaywrightTools:
             return arg_str
 
     def extract_tool_use(self, action: str) -> str:
-        """Extract tool command from action description.
-        
-        Args:
-            action: Description of action to take
-            
-        Returns:
-            Tool command to execute
-        """
         # Safety check for empty input
         if not action or action.isspace():
             if self.debug:
@@ -601,6 +469,25 @@ class PlaywrightTools:
         
         # Clean up the input - remove any "REFORMATTED:" text or similar prefixes
         action = re.sub(r'REFORMATTED:\s*', '', action)
+        
+        # NEW: Handle YAML-style planner output format
+        # Check if this looks like a YAML plan with title/description
+        yaml_title_pattern = r'title:\s*(.+?)(?:\n|$)'
+        yaml_desc_pattern = r'description:\s*(.+?)(?:\n|$)'
+        
+        title_match = re.search(yaml_title_pattern, action, re.IGNORECASE | re.DOTALL)
+        desc_match = re.search(yaml_desc_pattern, action, re.IGNORECASE | re.DOTALL)
+        
+        if title_match or desc_match:
+            # This looks like planner output - convert to tool command
+            title = title_match.group(1).strip() if title_match else ""
+            description = desc_match.group(1).strip() if desc_match else ""
+            combined_text = f"{title} {description}".strip()
+            
+            if self.debug:
+                print(f"Detected planner YAML format. Converting: '{combined_text[:100]}...'")
+            
+            return self._convert_plan_to_tool_command(combined_text)
         
         # First try to extract using pattern matching for ACTION section
         action_pattern = r'\*\s*ACTION\s*\n(.*?)(?:\n|$)'
@@ -733,16 +620,88 @@ class PlaywrightTools:
         
         # Default fallback if no LLM available
         return 'goto(page, "/docs/")'
-        
-    def _fix_unterminated_strings(self, text: str) -> str:
-        """Fix unterminated string literals in text.
-        
-        Args:
-            text: Text that might contain unterminated string literals
+
+    def _convert_plan_to_tool_command(self, plan_text: str) -> str:
+        if not plan_text:
+            return 'goto(page, "/docs/")'
             
-        Returns:
-            Fixed text with properly terminated string literals
-        """
+        plan_lower = plan_text.lower()
+        
+        # SQL Injection testing patterns
+        if any(term in plan_lower for term in ['sql injection', 'login form', 'authentication bypass']):
+            # Look for specific form paths in the text
+            form_paths = re.findall(r'/[a-zA-Z0-9_/\-\.]+', plan_text)
+            if form_paths:
+                login_path = next((path for path in form_paths if 'login' in path or 'auth' in path), form_paths[0])
+                return f'goto(page, "{login_path}")'
+            return 'goto(page, "/login/")'
+        
+        # API testing patterns
+        if any(term in plan_lower for term in ['api', 'endpoint', 'authorization testing', 'idor']):
+            # Look for API paths in the text
+            api_paths = re.findall(r'/api/[a-zA-Z0-9_/\-\.]+', plan_text)
+            if api_paths:
+                return f'goto(page, "{api_paths[0]}")'
+            return 'goto(page, "/api/")'
+        
+        # XSS testing patterns
+        if any(term in plan_lower for term in ['xss', 'cross-site scripting', 'input vectors', 'search form']):
+            # Look for search or form endpoints
+            search_paths = re.findall(r'/[a-zA-Z0-9_/\-\.]*search[a-zA-Z0-9_/\-\.]*', plan_text)
+            if search_paths:
+                return f'goto(page, "{search_paths[0]}")'
+            # Look for any form-related paths
+            form_paths = re.findall(r'/[a-zA-Z0-9_/\-\.]+', plan_text)
+            if form_paths:
+                return f'goto(page, "{form_paths[0]}")'
+            return 'goto(page, "/search/")'
+        
+        # Session management testing
+        if any(term in plan_lower for term in ['session', 'csrf', 'token', 'cookie']):
+            return 'goto(page, "/login/")'
+        
+        # Information disclosure testing
+        if any(term in plan_lower for term in ['information disclosure', 'error', 'stack trace', 'technology stack']):
+            # Try to trigger errors on common endpoints
+            return 'goto(page, "/admin/")'
+        
+        # Admin panel testing
+        if any(term in plan_lower for term in ['admin', 'dashboard', 'panel']):
+            return 'goto(page, "/admin/")'
+        
+        # File upload testing
+        if any(term in plan_lower for term in ['file upload', 'upload', 'document']):
+            upload_paths = re.findall(r'/[a-zA-Z0-9_/\-\.]*upload[a-zA-Z0-9_/\-\.]*', plan_text)
+            if upload_paths:
+                return f'goto(page, "{upload_paths[0]}")'
+            return 'goto(page, "/upload/")'
+        
+        # Look for specific endpoints mentioned in the text
+        endpoints = re.findall(r'/[a-zA-Z0-9_/\-\.]+', plan_text)
+        if endpoints:
+            # Prioritize more interesting endpoints
+            priority_endpoints = [ep for ep in endpoints if any(term in ep.lower() 
+                                 for term in ['login', 'admin', 'api', 'auth', 'upload', 'search'])]
+            if priority_endpoints:
+                return f'goto(page, "{priority_endpoints[0]}")'
+            return f'goto(page, "{endpoints[0]}")'
+        
+        # Look for URLs in the text
+        urls = re.findall(r'https?://[^\s]+', plan_text)
+        if urls:
+            return f'goto(page, "{urls[0]}")'
+        
+        # Default based on common security testing patterns
+        if 'authentication' in plan_lower or 'login' in plan_lower:
+            return 'goto(page, "/login/")'
+        elif 'api' in plan_lower:
+            return 'goto(page, "/api/")'
+        elif 'admin' in plan_lower:
+            return 'goto(page, "/admin/")'
+        else:
+            return 'goto(page, "/docs/")'
+
+    def _fix_unterminated_strings(self, text: str) -> str:
         # If empty or None, return safely
         if not text:
             return ""
@@ -793,15 +752,6 @@ class PlaywrightTools:
         return text
         
     def _pre_process_tool_use(self, tool_use: str) -> str:
-        """
-        Pre-process the tool use string to fix common text issues before full processing.
-        
-        Args:
-            tool_use: Raw tool use string
-            
-        Returns:
-            Pre-processed tool use string
-        """
         # Safety check
         if not tool_use or tool_use.isspace():
             return 'goto(page, "/docs/")'
@@ -836,14 +786,6 @@ class PlaywrightTools:
         return tool_use
     
     def _fix_tool_use(self, tool_use: str) -> str:
-        """Fix common issues with tool use extraction and add a layer of validation.
-        
-        Args:
-            tool_use: Extracted tool use
-            
-        Returns:
-            Fixed tool use
-        """
         # Handle completely invalid inputs with strong defaults
         if not tool_use or tool_use.isspace():
             return 'goto(page, "/docs/")'
@@ -937,14 +879,6 @@ class PlaywrightTools:
 
     # ===== BROWSER MANAGEMENT METHODS =====
     async def start_browser(self, headless: bool = True) -> bool:
-        """Start browser instance for async operations
-        
-        Args:
-            headless: Whether to run browser in headless mode
-            
-        Returns:
-            True if browser started successfully, False otherwise
-        """
         try:
             from playwright.async_api import async_playwright
             
@@ -969,7 +903,6 @@ class PlaywrightTools:
             return False
     
     async def close_browser(self):
-        """Close the async browser instance"""
         if self.browser:
             try:
                 await self.browser.close()
@@ -983,19 +916,10 @@ class PlaywrightTools:
     
     # Alias for backward compatibility
     async def close(self):
-        """Alias for close_browser()"""
         await self.close_browser()
     
     # ===== ASYNC BROWSER METHODS =====
     async def async_goto(self, url: str) -> Dict[str, Any]:
-        """Navigate to URL using async page and gather information
-        
-        Args:
-            url: URL to navigate to
-            
-        Returns:
-            Dictionary containing page information
-        """
         if not self.async_page:
             return {"error": "Browser not initialized. Call start_browser() first."}
             
@@ -1037,14 +961,6 @@ class PlaywrightTools:
             return {"error": str(e)}
     
     async def async_click(self, selector: str) -> Dict[str, Any]:
-        """Click on element using async page
-        
-        Args:
-            selector: CSS selector for element to click
-            
-        Returns:
-            Dictionary with action result
-        """
         if not self.async_page:
             return {"error": "Browser not initialized"}
             
@@ -1185,4 +1101,37 @@ def demo_tools():
 
 if __name__ == "__main__":
     # Run demo if script is executed directly
-    demo_tools() 
+    demo_tools()
+    
+    # Test planner compatibility
+    print("\n" + "="*60)
+    print("🔗 PLANNER COMPATIBILITY TEST")
+    print("="*60)
+    
+    tools = create_tools(debug=True, use_llm=False)
+    
+    # Test YAML format from planner
+    sample_yaml_plan = """
+title: SQL Injection Vulnerability Assessment - Authentication Bypass
+description: Conduct systematic SQL injection testing on the login form at /auth/login using time-based and boolean-based payloads. Test username and password parameters with UNION-based queries, error-based injection, and authentication bypass techniques including ' OR '1'='1' variants.
+"""
+    
+    print("📋 Testing YAML plan input:")
+    print(f"Input: {sample_yaml_plan.strip()}")
+    
+    extracted_command = tools.extract_tool_use(sample_yaml_plan)
+    print(f"✅ Extracted command: {extracted_command}")
+    
+    # Test another plan type
+    api_plan = """
+title: API Authorization Testing - IDOR and Privilege Escalation  
+description: Perform comprehensive authorization testing on discovered API endpoints /api/users and /api/admin. Test for Insecure Direct Object References by manipulating user IDs.
+"""
+    
+    print(f"\n📋 Testing API plan input:")
+    print(f"Input: {api_plan.strip()}")
+    
+    extracted_command2 = tools.extract_tool_use(api_plan)
+    print(f"✅ Extracted command: {extracted_command2}")
+    
+    print("\n🎯 Compatibility test completed!") 

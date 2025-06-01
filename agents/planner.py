@@ -1,7 +1,7 @@
 import yaml
 import re
 from typing import List, Dict, Any, Optional
-from llms_test import LLM
+from tools.llms import LLM
 
 PLANNER_SYSTEM_PROMPT = """
 You are an expert Vulnerability Assessment and Penetration Testing (VAPT) specialist with extensive experience in Dynamic Application Security Testing (DAST). Your role is to systematically analyze web applications using industry-standard VAPT methodologies and generate comprehensive security test plans that follow OWASP testing guidelines and NIST penetration testing frameworks.
@@ -35,7 +35,6 @@ Request and Response Data:
 - API calls: ['/api/endpoint1', '/api/endpoint2', ...]
 
 Reconnaissance Data:
-- Subdomains Found: [list of discovered subdomains]
 - Technologies Detected: [frameworks, libraries, servers detected]
 - Security Headers Present: [HSTS, CSP, X-Frame-Options, etc.]
 
@@ -88,7 +87,7 @@ If authentication is required for comprehensive testing, recommend calling auth_
 **Form Security:** Test input validation, CSRF protection, hidden field manipulation, file upload security
 **API Testing:** Enumerate endpoints, test authorization, parameter manipulation, rate limiting
 **Technology Stack:** Research CVEs for detected versions, test for known exploits
-**Infrastructure:** Test subdomain takeover, missing security headers, service enumeration
+**Infrastructure:** Test missing security headers, service enumeration
 
 ## Critical VAPT Requirements
 - **MUST generate ONLY 3-5 specific, actionable security test plans**
@@ -416,7 +415,6 @@ Request and Response Data:
 - API calls: ['/api/v1/users', '/api/v1/accounts/{id}', '/api/v2/transactions', '/api/admin/users', '/internal/backup']
 
 Reconnaissance Data:
-- Subdomains Found: ['admin.securebank.com', 'api.securebank.com', 'dev.securebank.com', 'staging.securebank.com', 'mail.securebank.com']
 - Technologies Detected: [
     'Apache/2.4.41 (Ubuntu)',
     'PHP/7.4.3',
