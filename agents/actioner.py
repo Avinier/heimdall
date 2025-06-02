@@ -84,7 +84,7 @@ class ActionerAgent:
     """
     
     def __init__(self, desc: str, 
-                 llm_type: str = "gemini_basic",
+                 api_type: str = "gemini",
                  model: str = "gemini-2.0-flash",
                  fireworks_model_key: str = "deepseek-v3",
                  temperature: float = 0.3,
@@ -95,7 +95,7 @@ class ActionerAgent:
         self.min_actions_required = 3
         
         # LLM configuration
-        self.llm_type = llm_type  # "gemini_basic", "gemini_reasoning", "fireworks"
+        self.api_type = api_type  # "gemini" or "fireworks"
         self.model = model
         self.fireworks_model_key = fireworks_model_key
         self.temperature = temperature
@@ -178,8 +178,8 @@ class ActionerAgent:
             Remember to follow the exact format with * DISCUSSION and * ACTION sections.
         """
         
-        # Return the appropriate prompt format based on LLM type
-        if self.llm_type == "fireworks":
+        # Return the appropriate prompt format based on api_type
+        if self.api_type == "fireworks":
             # For Fireworks, we need to separate system and user prompts
             return {
                 "system_prompt": ACTIONER_SYSTEM_PROMPT,
@@ -202,42 +202,37 @@ class ActionerAgent:
     
     def _call_llm(self, prompt: Union[str, Dict[str, str]]) -> str:
         try:
-            if self.llm_type == "gemini_basic":
-                # Standard Gemini call
-                if isinstance(prompt, dict):
-                    # If we got a dict (shouldn't happen for gemini_basic), use combined prompt
-                    combined_prompt = f"{prompt['system_prompt']}\n\n{prompt['user_prompt']}"
-                    response = self.llm.gemini_basic_call(combined_prompt, model=self.model)
-                else:
-                    response = self.llm.gemini_basic_call(prompt, model=self.model)
-                return response
-                
-            elif self.llm_type == "gemini_reasoning":
-                # Gemini reasoning call with thinking
+            if self.api_type == "gemini":
+                # For Gemini, we support both basic and reasoning modes based on config
                 if isinstance(prompt, dict):
                     # If we got a dict, use combined prompt
                     combined_prompt = f"{prompt['system_prompt']}\n\n{prompt['user_prompt']}"
                 else:
                     combined_prompt = prompt
                 
-                response = self.llm.gemini_reasoning_call(
-                    combined_prompt, 
-                    model=self.model,
-                    include_thoughts=self.reasoning_config.get("include_thoughts", True),
-                    thinking_budget=self.reasoning_config.get("thinking_budget")
-                )
-                
-                # For reasoning calls, we get a dict with 'text' and optional 'thought_summary'
-                main_response = response.get('text', '')
-                thought_summary = response.get('thought_summary', '')
-                
-                # Optionally include thought summary in response for debugging
-                if thought_summary and self.reasoning_config.get("include_thoughts", True):
-                    return f"THINKING: {thought_summary}\n\nRESPONSE: {main_response}"
+                if self.reasoning_config.get("include_thoughts", True):
+                    # Use reasoning mode with thinking
+                    response = self.llm.gemini_reasoning_call(
+                        combined_prompt, 
+                        model=self.model,
+                        include_thoughts=True,
+                        thinking_budget=self.reasoning_config.get("thinking_budget")
+                    )
+                    
+                    # For reasoning calls, we get a dict with 'text' and optional 'thought_summary'
+                    main_response = response.get('text', '')
+                    thought_summary = response.get('thought_summary', '')
+                    
+                    # Include thought summary in response for debugging
+                    if thought_summary:
+                        return f"THINKING: {thought_summary}\n\nRESPONSE: {main_response}"
+                    else:
+                        return main_response
                 else:
-                    return main_response
-                
-            elif self.llm_type == "fireworks":
+                    # Use basic mode without thinking
+                    return self.llm.gemini_basic_call(combined_prompt, model=self.model)
+                    
+            elif self.api_type == "fireworks":
                 # Fireworks API call
                 if isinstance(prompt, dict):
                     system_prompt = prompt.get('system_prompt', '')
@@ -247,16 +242,16 @@ class ActionerAgent:
                     system_prompt = ACTIONER_SYSTEM_PROMPT
                     user_prompt = prompt
                 
-                response = self.llm.fireworks_call(
+                return self.llm.fireworks_call(
                     user_prompt,
                     model_key=self.fireworks_model_key,
                     temperature=self.temperature,
-                    system_prompt=system_prompt
+                    system_prompt=system_prompt,
+                    reasoning=self.reasoning_config.get("include_thoughts", True)
                 )
-                return response
                 
             else:
-                raise ValueError(f"Unsupported LLM type: {self.llm_type}")
+                raise ValueError(f"Unsupported api_type: {self.api_type}. Use 'gemini' or 'fireworks'")
                 
         except Exception as e:
             print(f"LLM call failed: {str(e)}")
@@ -449,9 +444,9 @@ class ActionerAgent:
     def set_min_actions(self, min_actions: int):
         self.min_actions_required = max(1, min_actions)
     
-    def configure_llm(self, llm_type: str, **kwargs):
+    def configure_llm(self, api_type: str, **kwargs):
         """Configure the LLM type and parameters"""
-        self.llm_type = llm_type
+        self.api_type = api_type
         
         if 'model' in kwargs:
             self.model = kwargs['model']
@@ -465,7 +460,7 @@ class ActionerAgent:
     def get_llm_config(self) -> Dict[str, Any]:
         """Get current LLM configuration"""
         return {
-            'llm_type': self.llm_type,
+            'api_type': self.api_type,
             'model': self.model,
             'fireworks_model_key': self.fireworks_model_key,
             'temperature': self.temperature,

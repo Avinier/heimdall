@@ -22,7 +22,7 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
     """
     
     # INITIALIZE: Create web proxy and scanner
-    base_url = "https://github.com/Avinier"  # Change this to your target URL
+    base_url = "https://dev.quantumsenses.com"  # Change this to your target URL
     total_token_counter = 0
     
     print("=" * 80)
@@ -42,9 +42,32 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
     try:
         web_proxy = WebProxy(starting_url=base_url)
         browser, context, page, playwright = web_proxy.create_proxy()
-        planner = PlannerAgent(desc="Security test planner for orchestration phase 2")
-        actioner = ActionerAgent(desc="Security test executor for orchestration phase 2")
-        context_manager = ContextManagerAgent(desc="Context management for orchestration phase 2")
+        planner = PlannerAgent(
+            desc="Security test planner for orchestration phase 2",
+            api_type="gemini",
+            model_key="gemini-2.5-flash-preview-05-20",
+            reasoning=True,
+            temperature=0.3
+        )
+        actioner = ActionerAgent(
+            desc="Security test executor for orchestration phase 2",
+            api_type="gemini",
+            model="gemini-2.5-flash-preview-05-20",
+            fireworks_model_key="deepseek-v3",
+            temperature=0.3,
+            reasoning_config={
+                "include_thoughts": True,
+                "thinking_budget": None
+            }
+        )
+        context_manager = ContextManagerAgent(
+            desc="Context management for orchestration phase 2",
+            debug=False,
+            api_type="fireworks",
+            model_key="qwen3-30b-a3b",
+            reasoning=False,
+            temperature=0.2
+        )
         print("✓ All agents and tools initialized successfully")
         print()
     except Exception as e:

@@ -130,8 +130,13 @@ class PlannerAgent:
     structured security testing plans using LLM analysis.
     """
     
-    def __init__(self, desc: str):
-        self.llm = LLM(desc="gemini-2.0-flash for now")
+    def __init__(self, desc: str, api_type: str = "gemini", model_key: str = "qwen3-30b-a3b", 
+                 reasoning: bool = True, temperature: float = 0.3):
+        self.llm = LLM(desc="testing with qwen3 reasoning")
+        self.api_type = api_type
+        self.model_key = model_key
+        self.reasoning = reasoning
+        self.temperature = temperature
         
     def plan(self, input_pagedata: str) -> List[Dict[str, str]]:
         
@@ -150,15 +155,36 @@ class PlannerAgent:
         except Exception as e:
             print(f"Error in plan generation: {str(e)}")
             # Return fallback plans if everything fails
+            print("Returning fallback plans")
             return self._get_fallback_plans()
     
     def _call_llm(self, input_pagedata: str) -> str:
 
         try:
-            # Use Gemini basic call with the system prompt and page data
+            # Use appropriate API based on api_type
             full_prompt = f"{PLANNER_SYSTEM_PROMPT}\n\n The actual page data is: {input_pagedata}"
-            response = self.llm.gemini_basic_call(full_prompt, model="gemini-2.0-flash")
-            return response
+            
+            if self.api_type == "gemini":
+                response = self.llm.gemini_reasoning_call(
+                    full_prompt, 
+                    model=self.model_key, 
+                    temperature=self.temperature, 
+                    include_thoughts=self.reasoning
+                )
+                # Handle potential dict response from reasoning call
+                if isinstance(response, dict):
+                    return response.get('text', str(response))
+                return response
+            elif self.api_type == "fireworks":
+                response = self.llm.fireworks_call(
+                    full_prompt, 
+                    model_key=self.model_key, 
+                    reasoning=self.reasoning, 
+                    temperature=self.temperature
+                )
+                return response
+            else:
+                raise ValueError(f"Unsupported api_type: {self.api_type}. Use 'gemini' or 'fireworks'")
             
         except Exception as e:
             print(f"LLM call failed: {str(e)}")
@@ -347,7 +373,13 @@ class PlannerAgent:
 
 # Example usage and testing
 if __name__ == "__main__":
-    planner = PlannerAgent(desc="testing the planner")
+    planner = PlannerAgent(
+        desc="testing the planner", 
+        api_type="fireworks",
+        model_key="qwen3-30b-a3b", 
+        reasoning=True, 
+        temperature=0.3
+    )
     
     # Test with comprehensive VAPT sample data
     sample_data = """

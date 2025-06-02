@@ -38,9 +38,9 @@ class LLM:
         # Fireworks model mapping
         self.fireworks_models = {
             "deepseek-v3": "accounts/fireworks/models/deepseek-v3",
-            "deepseek-r1": "accounts/fireworks/models/deepseek-r1",
-            "qwen3-30b": "accounts/fireworks/models/qwen3-30b-a3b",
-            "qwen3-235b": "accounts/fireworks/models/qwen2p5-72b-instruct"
+            "deepseek-r1": "accounts/fireworks/models/deepseek-r1-0528",
+            "qwen3-30b-a3b": "accounts/fireworks/models/qwen3-30b-a3b",
+            "qwen2.5-72b-instruct": "accounts/fireworks/models/qwen2p5-72b-instruct"
         }
 
     # ========== GEMINI FUNCTIONS ==========
@@ -126,7 +126,7 @@ class LLM:
         except Exception as e:
             raise Exception(f"[gemini_tool_use] Gemini tool use failed: {str(e)}")
 
-    def gemini_with_search(self, prompt: str, model: str = "gemini-1.5-flash", dynamic_threshold: float = 0.3) -> Dict:
+    def gemini_with_search(self, prompt: str, model: str = "gemini-1.5-flash", dynamic_threshold: float = 0.3) -> str:
         if not self.gemini_client:
             raise ValueError("Gemini client not initialized. Check GEMINI_API_KEY.")
         
@@ -151,12 +151,7 @@ class LLM:
                     config=config
                 )
                 
-                return {
-                    "text": getattr(response, 'text', ''),
-                    "grounding_metadata": getattr(response, 'grounding_metadata', None),
-                    "search_suggestions": getattr(response, 'search_suggestions', None),
-                    "full_response": response
-                }
+                return getattr(response, 'text', '')
             
             # For Gemini 1.5, use grounding with Google Search
             else:
@@ -179,18 +174,14 @@ class LLM:
                     config=config
                 )
                 
-                return {
-                    "text": getattr(response, 'text', ''),
-                    "grounding_metadata": getattr(response, 'grounding_metadata', None),
-                    "search_suggestions": getattr(response, 'search_suggestions', None),
-                    "full_response": response
-                }
+                return getattr(response, 'text', '')
                 
         except Exception as e:
             raise Exception(f"[gemini_with_search] Gemini grounding call failed: {str(e)}")
 
     def gemini_reasoning_call(self, prompt: str, model: str = "gemini-2.5-pro-preview-05-06", 
-                             include_thoughts: bool = True, thinking_budget: Optional[int] = None) -> Dict:
+                             include_thoughts: bool = True, thinking_budget: Optional[int] = None,
+                             temperature: float = 0.3) -> str:
        
         if not self.gemini_client:
             raise ValueError("Gemini client not initialized. Check GEMINI_API_KEY.")
@@ -210,8 +201,11 @@ class LLM:
                 else:
                     print("Warning: thinking_budget is only supported for Flash models, ignoring parameter")
             
-            # Create generation config with thinking
-            config = types.GenerateContentConfig(thinking_config=thinking_config)
+            # Create generation config with thinking and temperature
+            config = types.GenerateContentConfig(
+                thinking_config=thinking_config,
+                temperature=temperature
+            )
             
             # Generate content
             response = self.gemini_client.models.generate_content(
@@ -234,25 +228,15 @@ class LLM:
                             else:
                                 main_response = part.text
             
-            # Get token usage information
-            thoughts_token_count = getattr(response.usage_metadata, 'thoughts_token_count', 0) if hasattr(response, 'usage_metadata') else 0
-            output_token_count = getattr(response.usage_metadata, 'candidates_token_count', 0) if hasattr(response, 'usage_metadata') else 0
-            
-            return {
-                "text": main_response,
-                "thought_summary": thought_summary if include_thoughts else None,
-                "thoughts_token_count": thoughts_token_count,
-                "output_token_count": output_token_count,
-                "full_response": response
-            }
-            
+            return main_response
+                
         except Exception as e:
             raise Exception(f"[gemini_reasoning_call] Gemini reasoning call failed: {str(e)}")
 
     # ========== FIREWORKS AI FUNCTIONS ==========
     
     def fireworks_call(self, prompt: str, model_key: str, max_tokens: int = 4096, 
-                      temperature: float = 0.3, system_prompt: Optional[str] = None) -> str:
+                      temperature: float = 0.5, system_prompt: Optional[str] = None, reasoning: bool = False) -> str:
         
         if model_key not in self.fireworks_models:
             raise ValueError(f"Unknown model key: {model_key}. Available: {list(self.fireworks_models.keys())}")
@@ -271,6 +255,12 @@ class LLM:
             "messages": messages
         }
         
+        # Only add reasoning_effort: "none" when reasoning is False
+        if not reasoning:
+            payload["reasoning_effort"] = "none"
+        if reasoning:
+            payload["reasoning_effort"] = "low"
+        
         try:
             response = requests.post(
                 self.fireworks_endpoint,
@@ -280,8 +270,24 @@ class LLM:
             )
             response.raise_for_status()
             response_json = response.json()
-            return response_json["choices"][0]["message"]["content"]
-        
+            content = response_json["choices"][0]["message"]["content"]
+            
+            # If reasoning is enabled, extract thinking content
+            if reasoning:
+                thinking_content = ""
+                main_content = content
+                
+                # Extract content within <think></think> tags
+                think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
+                if think_match:
+                    thinking_content = think_match.group(1).strip()
+                    # Remove the <think></think> section from main content
+                    main_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                    print(f"THINKING CONTENT: {thinking_content}")
+                
+                return content
+            else:
+                return content
 
         except requests.exceptions.RequestException as e:
             raise Exception(f"[fireworks_call] Fireworks API call failed: {str(e)}")
@@ -289,7 +295,6 @@ class LLM:
             raise Exception(f"[fireworks_call] Failed to parse Fireworks API response: {str(e)}")
         except (KeyError, IndexError) as e:
             raise Exception(f"[fireworks_call] Failed to extract content from Fireworks response: {str(e)}")
-        
 
 
     def fireworks_tool_use(self, prompt: str, tools: Dict[str, str], 
@@ -409,11 +414,7 @@ if __name__ == "__main__":
     try:
         print("=== Testing Gemini Reasoning Call ===")
         response = llm.gemini_reasoning_call("What is the sum of the first 10 prime numbers? Show your reasoning step by step.")
-        print(f"Main Response: {response['text']}")
-        if response['thought_summary']:
-            print(f"Thought Summary: {response['thought_summary']}")
-        print(f"Thinking Tokens: {response['thoughts_token_count']}")
-        print(f"Output Tokens: {response['output_token_count']}")
+        print(f"Main Response: {response}")
         print()
     except Exception as e:
         print(f"Gemini reasoning test failed: {e}")
@@ -437,6 +438,16 @@ if __name__ == "__main__":
         print()
     except Exception as e:
         print(f"Fireworks test failed: {e}")
+        print()
+    
+    # Test Fireworks AI call with reasoning
+    try:
+        print("=== Testing Fireworks AI Call with Reasoning ===")
+        response = llm.fireworks_call("What is the sum of the first 5 prime numbers? Show your reasoning.", "deepseek-r1", reasoning=True)
+        print(f"Response: {response}")
+        print()
+    except Exception as e:
+        print(f"Fireworks reasoning test failed: {e}")
         print()
     
     # Show available models

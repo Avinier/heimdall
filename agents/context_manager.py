@@ -158,10 +158,41 @@ class ContextManagerAgent:
     Optimized for VAPT (Vulnerability Assessment and Penetration Testing) workflows.
     """
     
-    def __init__(self, desc: str, debug: bool = False):
-        self.llm = LLM(desc=desc)
+    def __init__(self, desc: str, debug: bool = False, api_type: str = "gemini", model_key: str = "qwen3-30b-a3b", reasoning: bool = True, temperature: float = 0.3):
+        self.llm = LLM(desc="for summarization, using qwen3-30b-a3b")
         self.debug = debug
+        self.api_type = api_type
+        self.model_key = model_key
+        self.reasoning = reasoning
+        self.temperature = temperature
         
+    def _call_llm(self, prompt: str) -> str:
+        """Centralized LLM call function that handles both Gemini and Fireworks APIs."""
+        try:
+            if self.api_type == "gemini":
+                response = self.llm.gemini_reasoning_call(
+                    prompt,
+                    model=self.model_key,
+                    temperature=self.temperature,
+                    include_thoughts=self.reasoning
+                )
+                # Handle potential dict response from reasoning call
+                if isinstance(response, dict):
+                    return response.get('text', str(response))
+                return response
+            elif self.api_type == "fireworks":
+                return self.llm.fireworks_call(
+                    prompt, 
+                    model_key=self.model_key, 
+                    reasoning=self.reasoning, 
+                    temperature=self.temperature
+                )
+            else:
+                raise ValueError(f"Unsupported api_type: {self.api_type}. Use 'gemini' or 'fireworks'")
+        except Exception as e:
+            print(f"LLM call failed: {str(e)}")
+            raise
+            
     def summarize(self, llm_response: str, tool_use: str, tool_output: str) -> str:
         # Limit tool output to prevent context overflow
         limited_tool_output = tool_output[:100000] if tool_output else ""
@@ -169,7 +200,7 @@ class ContextManagerAgent:
         prompt = SUMMARIZATION_SYSTEM_PROMPT.format(llm_response=llm_response, tool_use=tool_use, limited_tool_output=limited_tool_output)
         
         try:
-            return self.llm.gemini_basic_call(prompt)
+            return self._call_llm(prompt)
         except Exception as e:
             print(f"Error in summarize: {str(e)}")
             # Fallback summary with security focus
@@ -183,7 +214,7 @@ class ContextManagerAgent:
         prompt = SUMMARIZE_CONVERSATION_SYSTEM_PROMPT.format(conversation_str=conversation_str)
 
         try:
-            output = self.llm.gemini_basic_call(prompt)
+            output = self._call_llm(prompt)
             output = "To reduce context size, here is a VAPT summary of the previous security testing conversation:\n" + output
             return [{"role": "user", "content": output}]
         except Exception as e:
@@ -198,7 +229,7 @@ class ContextManagerAgent:
         prompt = SUMMARIZE_PAGE_SOURCE_SYSTEM_PROMPT.format(page_source=page_source, url=url)
         
         try:
-            return self.llm.gemini_basic_call(prompt)
+            return self._call_llm(prompt)
         except Exception as e:
             print(f"Error in summarize_page_source: {str(e)}")
             # Fallback summary with security focus

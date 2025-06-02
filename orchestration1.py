@@ -39,7 +39,13 @@ def run_orchestration():
     try:
         web_proxy = WebProxy(starting_url=base_url)
         browser, context, page, playwright = web_proxy.create_proxy()
-        planner = PlannerAgent(desc="Testing planner for first phase of orchestration")
+        planner = PlannerAgent(
+            desc="Testing planner for first phase of orchestration",
+            api_type="fireworks",
+            model_key="qwen3-30b-a3b",
+            reasoning=True,
+            temperature=0.3
+        )
         print("✓ Browser and planner initialized successfully")
         print()
     except Exception as e:
