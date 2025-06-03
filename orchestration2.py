@@ -160,6 +160,36 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
                 for plan_idx, plan in enumerate(plans, 1):
                     print("=" * 50)
                     print(f"EXECUTING PLAN {plan_idx}/{len(plans)}: {plan.get('title', 'Untitled Plan')}")
+                    
+                    # Display plan context for execution
+                    business_impact = plan.get('business_impact', '')
+                    attack_complexity = plan.get('attack_complexity', '')
+                    compliance_risk = plan.get('compliance_risk', '')
+                    
+                    if business_impact:
+                        impact_level = "UNKNOWN"
+                        if any(term in business_impact.upper() for term in ['CRITICAL', 'CATASTROPHIC']):
+                            impact_level = "🔴 CRITICAL"
+                        elif 'HIGH' in business_impact.upper():
+                            impact_level = "🟠 HIGH"
+                        elif 'MEDIUM' in business_impact.upper():
+                            impact_level = "🟡 MEDIUM"
+                        elif 'LOW' in business_impact.upper():
+                            impact_level = "🟢 LOW"
+                        print(f"Business Impact: {impact_level}")
+                    
+                    if attack_complexity:
+                        complexity_level = "STANDARD"
+                        if any(term in attack_complexity.upper() for term in ['EXPERT', 'VERY HIGH']):
+                            complexity_level = "🔥 EXPERT"
+                        elif 'HIGH' in attack_complexity.upper():
+                            complexity_level = "⚡ HIGH"
+                        elif 'MEDIUM' in attack_complexity.upper():
+                            complexity_level = "⚙️ MEDIUM"
+                        elif 'LOW' in attack_complexity.upper():
+                            complexity_level = "🔧 LOW"
+                        print(f"Attack Complexity: {complexity_level}")
+                    
                     print("=" * 50)
                     
                     # Reset conversation history to initial messages (no system prompt needed - handled by ActionerAgent)
@@ -167,9 +197,22 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
                         {"role": "user", "content": page_data_context}
                     ]
                     
-                    # Add tool context and plan-specific instructions to history
-                    plan_instructions = f"SECURITY TEST PLAN:\nTitle: {plan.get('title', 'Security Test')}\nDescription: {plan.get('description', 'Perform security testing')}\n\nExecute this plan using the available security testing tools."
-                    conversation_history.append({"role": "user", "content": plan_instructions})
+                    # Enhanced plan instructions with strategic context
+                    enhanced_plan_instructions = f"""ENHANCED SECURITY TEST PLAN:
+Title: {plan.get('title', 'Security Test')}
+Description: {plan.get('description', 'Perform security testing')}"""
+                    
+                    # Add enhanced fields to instructions
+                    if business_impact:
+                        enhanced_plan_instructions += f"\nBusiness Impact: {business_impact}"
+                    if attack_complexity:
+                        enhanced_plan_instructions += f"\nAttack Complexity: {attack_complexity}"
+                    if compliance_risk:
+                        enhanced_plan_instructions += f"\nCompliance Risk: {compliance_risk}"
+                    
+                    enhanced_plan_instructions += "\n\nExecute this enhanced security test plan using the available tools, considering the business impact, attack complexity, and compliance requirements."
+                    
+                    conversation_history.append({"role": "user", "content": enhanced_plan_instructions})
                     
                     iteration_counter = 0
                     plan_findings = []
@@ -203,11 +246,20 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
                         # Send history to LLM for next action decision
                         print("Generating next security action...")
                         try:
+                            # Get the most recent action output if available
+                            recent_tool_output = ""
+                            if iteration_counter > 0 and len(conversation_history) > 2:
+                                # Look for the most recent "Action Result:" message
+                                for msg in reversed(conversation_history):
+                                    if msg["content"].startswith("Action Result:"):
+                                        recent_tool_output = msg["content"].replace("Action Result: ", "")
+                                        break
+                            
                             # ACTIONER: Generate action using actioner
                             actioner_response = actioner.generate_action_of_plan_step(
                                 plan=plan,
                                 page_data=page_data_context,
-                                tool_output="",
+                                tool_output=recent_tool_output,
                                 conversation_history=[msg["content"] for msg in conversation_history]
                             )
                             
@@ -283,10 +335,10 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
         except Exception as e:
             print(f"Warning: Error during cleanup: {str(e)}")
     
-    # FINALIZE: Generate summary of all findings
+    # FINALIZE: Generate enhanced summary of all findings with business intelligence
     print()
     print("=" * 80)
-    print("ORCHESTRATION COMPLETE - FINAL SUMMARY")
+    print("ENHANCED ORCHESTRATION COMPLETE - EXECUTIVE SUMMARY")
     print("=" * 80)
     print(f"Total URLs analyzed: {len(visited_urls)}")
     print(f"Remaining URLs in queue: {len(urls_to_parse)}")
@@ -294,12 +346,86 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
     print(f"Total security findings: {len(all_findings)}")
     
     if all_findings:
-        print("\n🔍 SECURITY FINDINGS SUMMARY:")
+        # Categorize findings by business impact
+        critical_findings = [f for f in all_findings if any(term in f for term in ['🔴 CRITICAL', 'CATASTROPHIC', 'STRATEGIC ALERT'])]
+        high_findings = [f for f in all_findings if '🟠 HIGH' in f and f not in critical_findings]
+        medium_findings = [f for f in all_findings if '🟡 MEDIUM' in f and f not in critical_findings and f not in high_findings]
+        low_findings = [f for f in all_findings if '🟢 LOW' in f and f not in critical_findings and f not in high_findings and f not in medium_findings]
+        other_findings = [f for f in all_findings if f not in critical_findings and f not in high_findings and f not in medium_findings and f not in low_findings]
+        
+        print(f"\n📊 BUSINESS IMPACT ANALYSIS:")
         print("-" * 40)
-        for i, finding in enumerate(all_findings, 1):
-            print(f"{i}. {finding}")
+        print(f"🔴 Critical/Catastrophic Findings: {len(critical_findings)}")
+        print(f"🟠 High Business Impact: {len(high_findings)}")
+        print(f"🟡 Medium Business Impact: {len(medium_findings)}")
+        print(f"🟢 Low Business Impact: {len(low_findings)}")
+        print(f"📋 Other Findings: {len(other_findings)}")
+        
+        print("\n🔍 DETAILED SECURITY FINDINGS:")
+        print("-" * 40)
+        
+        if critical_findings:
+            print("\n🚨 CRITICAL/CATASTROPHIC FINDINGS (IMMEDIATE EXECUTIVE ATTENTION REQUIRED):")
+            for i, finding in enumerate(critical_findings, 1):
+                print(f"  {i}. {finding}")
+        
+        if high_findings:
+            print("\n🟠 HIGH BUSINESS IMPACT FINDINGS:")
+            for i, finding in enumerate(high_findings, 1):
+                print(f"  {i}. {finding}")
+        
+        if medium_findings:
+            print("\n🟡 MEDIUM BUSINESS IMPACT FINDINGS:")
+            for i, finding in enumerate(medium_findings, 1):
+                print(f"  {i}. {finding}")
+        
+        if low_findings:
+            print("\n🟢 LOW BUSINESS IMPACT FINDINGS:")
+            for i, finding in enumerate(low_findings, 1):
+                print(f"  {i}. {finding}")
+        
+        if other_findings:
+            print("\n📋 ADDITIONAL FINDINGS:")
+            for i, finding in enumerate(other_findings, 1):
+                print(f"  {i}. {finding}")
+        
+        # Executive recommendation section
+        print("\n💼 EXECUTIVE RECOMMENDATIONS:")
+        print("-" * 40)
+        if critical_findings:
+            print("🚨 IMMEDIATE ACTION REQUIRED:")
+            print("  - Schedule emergency security meeting within 24 hours")
+            print("  - Implement temporary mitigations for critical vulnerabilities")
+            print("  - Consider temporary service restrictions if necessary")
+            print("  - Prepare incident response team activation")
+        
+        if high_findings:
+            print("⚡ HIGH PRIORITY ACTIONS (Next 7 days):")
+            print("  - Prioritize high-impact vulnerability remediation")
+            print("  - Review and update security controls")
+            print("  - Consider third-party security assessment")
+        
+        if len(all_findings) > 5:
+            print("📈 STRATEGIC SECURITY INVESTMENT:")
+            print("  - Consider enhanced security program investment")
+            print("  - Evaluate current security architecture adequacy")
+            print("  - Plan comprehensive security framework upgrade")
+        
+        # Compliance implications
+        compliance_findings = [f for f in all_findings if any(term in f.lower() for term in ['compliance', 'pci dss', 'gdpr', 'sox', 'hipaa', 'iso 27001'])]
+        if compliance_findings:
+            print("\n⚖️  REGULATORY COMPLIANCE IMPLICATIONS:")
+            print(f"  - {len(compliance_findings)} compliance-related findings detected")
+            print("  - Consider regulatory notification requirements")
+            print("  - Schedule compliance team review")
+            print("  - Prepare audit trail documentation")
+        
     else:
-        print("\n❌ No security vulnerabilities detected in this assessment.")
+        print("\n✅ No security vulnerabilities detected in this assessment.")
+        print("\n💼 EXECUTIVE SUMMARY:")
+        print("  - Current security posture appears adequate")
+        print("  - Consider periodic reassessment schedule")
+        print("  - Maintain continuous monitoring capabilities")
 
 def _execute_action_command(action_command: str, page) -> str:
     """
@@ -361,29 +487,103 @@ def _execute_action_command(action_command: str, page) -> str:
 
 def _analyze_conversation_for_findings(conversation_history) -> list:
     """
-    Analyze conversation history to detect security findings.
-    Returns a list of detected security issues.
+    Enhanced analysis of conversation history to detect security findings with business context.
+    Returns a list of detected security issues with risk assessment.
     """
     findings = []
     
     # Convert conversation to text for analysis
     conversation_text = "\n".join([msg["content"] for msg in conversation_history])
     
-    # Look for security indicators
+    # Extract business context from conversation
+    business_impact_context = ""
+    attack_complexity_context = ""
+    compliance_context = ""
+    
+    # Look for enhanced plan fields in conversation
+    if "Business Impact:" in conversation_text:
+        impact_match = re.search(r'Business Impact:\s*([^\n]+)', conversation_text)
+        if impact_match:
+            business_impact_context = impact_match.group(1)
+    
+    if "Attack Complexity:" in conversation_text:
+        complexity_match = re.search(r'Attack Complexity:\s*([^\n]+)', conversation_text)
+        if complexity_match:
+            attack_complexity_context = complexity_match.group(1)
+    
+    if "Compliance Risk:" in conversation_text:
+        compliance_match = re.search(r'Compliance Risk:\s*([^\n]+)', conversation_text)
+        if compliance_match:
+            compliance_context = compliance_match.group(1)
+    
+    # Enhanced security indicators with business context
     security_indicators = [
-        ("SQL Injection", ["sql error", "mysql error", "postgresql error", "syntax error", "union select"]),
-        ("XSS Vulnerability", ["script>alert", "javascript:", "onerror=", "xss", "cross-site scripting"]),
-        ("Authentication Bypass", ["login bypass", "admin access", "unauthorized access", "session hijack"]),
-        ("Information Disclosure", ["debug info", "stack trace", "error message", "database schema", "version info"]),
-        ("Authorization Flaw", ["privilege escalation", "idor", "access control", "unauthorized operation"]),
-        ("CSRF Vulnerability", ["csrf token missing", "cross-site request", "state changing operation"])
+        ("Critical SQL Injection", ["sql error", "mysql error", "postgresql error", "syntax error", "union select", "sql injection bypass"]),
+        ("Advanced XSS Vulnerability", ["script>alert", "javascript:", "onerror=", "xss", "cross-site scripting", "dom manipulation", "session hijacking"]),
+        ("Authentication Architecture Compromise", ["login bypass", "admin access", "unauthorized access", "session hijack", "jwt manipulation", "oauth bypass"]),
+        ("Business Logic Exploitation", ["workflow bypass", "transaction manipulation", "privilege escalation", "business rule violation", "approval process bypass"]),
+        ("Information Disclosure", ["debug info", "stack trace", "error message", "database schema", "version info", "api documentation", "configuration exposure"]),
+        ("Authorization Control Bypass", ["privilege escalation", "idor", "access control", "unauthorized operation", "rbac bypass", "role manipulation"]),
+        ("Advanced CSRF Attack", ["csrf token missing", "cross-site request", "state changing operation", "sameSite bypass", "csrf protection bypass"]),
+        ("Financial System Compromise", ["payment bypass", "transaction manipulation", "balance modification", "currency conversion abuse", "financial workflow exploit"]),
+        ("API Security Vulnerability", ["api authorization bypass", "jwt token manipulation", "graphql introspection", "rest api abuse", "microservices exploitation"]),
+        ("Session Management Flaw", ["session fixation", "concurrent session abuse", "token entropy weakness", "session hijacking", "cookie manipulation"]),
+        ("Compliance Violation", ["pci dss violation", "gdpr breach", "sox control failure", "hipaa violation", "regulatory control bypass"]),
+        ("Enterprise Infrastructure Compromise", ["cloud misconfiguration", "container escape", "devops pipeline compromise", "supply chain attack"]),
+        ("Advanced Persistent Threat Simulation", ["stealth technique", "evasion method", "anti-forensics", "persistence mechanism", "lateral movement"]),
+        ("Information Warfare Intelligence", ["competitive intelligence", "trade secret exposure", "strategic information disclosure", "intellectual property leak"])
     ]
     
     for vulnerability_type, indicators in security_indicators:
         for indicator in indicators:
             if indicator.lower() in conversation_text.lower():
-                findings.append(f"{vulnerability_type}: {indicator} detected")
+                # Build enhanced finding with business context
+                finding = f"{vulnerability_type}: {indicator} detected"
+                
+                # Add business impact context if available
+                if business_impact_context:
+                    if any(term in business_impact_context.upper() for term in ['CRITICAL', 'CATASTROPHIC']):
+                        finding += " [🔴 CRITICAL BUSINESS IMPACT]"
+                    elif 'HIGH' in business_impact_context.upper():
+                        finding += " [🟠 HIGH BUSINESS IMPACT]"
+                    elif 'MEDIUM' in business_impact_context.upper():
+                        finding += " [🟡 MEDIUM BUSINESS IMPACT]"
+                    elif 'LOW' in business_impact_context.upper():
+                        finding += " [🟢 LOW BUSINESS IMPACT]"
+                
+                # Add attack complexity context
+                if attack_complexity_context:
+                    if any(term in attack_complexity_context.upper() for term in ['EXPERT', 'VERY HIGH']):
+                        finding += " [Expert-level exploitation required]"
+                    elif 'HIGH' in attack_complexity_context.upper():
+                        finding += " [Advanced techniques utilized]"
+                
+                # Add compliance context
+                if compliance_context:
+                    finding += f" [Compliance Risk: {compliance_context[:50]}...]"
+                
+                findings.append(finding)
                 break  # Only add each vulnerability type once per conversation
+    
+    # Look for specific business impact indicators
+    business_impact_indicators = [
+        ("Financial Loss Potential", ["unauthorized transfer", "payment manipulation", "transaction fraud", "financial system compromise"]),
+        ("Data Breach Risk", ["customer data access", "pii exposure", "database compromise", "sensitive information disclosure"]),
+        ("Regulatory Compliance Failure", ["audit trail compromise", "control bypass", "compliance violation", "regulatory requirement failure"]),
+        ("Operational Disruption", ["system availability impact", "service interruption", "business continuity threat", "operational compromise"]),
+        ("Competitive Intelligence Exposure", ["trade secret access", "strategic information leak", "competitive advantage loss", "intellectual property exposure"])
+    ]
+    
+    for impact_type, indicators in business_impact_indicators:
+        for indicator in indicators:
+            if indicator.lower() in conversation_text.lower():
+                findings.append(f"Business Impact: {impact_type} - {indicator} identified")
+                break
+    
+    # Add summary of strategic findings if any critical issues found
+    critical_findings = [f for f in findings if any(term in f for term in ['CRITICAL', 'Financial', 'Data Breach', 'Compliance'])]
+    if critical_findings:
+        findings.append(f"⚠️  STRATEGIC ALERT: {len(critical_findings)} critical business-impact vulnerabilities detected requiring immediate executive attention")
     
     return findings
 
@@ -399,9 +599,9 @@ def _is_same_domain(base_url: str, link_url: str) -> bool:
         return False
 
 def _print_plans_for_url(url: str, plans: list):
-    """Print security test plans for a URL in a structured format."""
-    print("🔍 SECURITY TEST PLANS")
-    print("-" * 40)
+    """Print enhanced security test plans for a URL in a structured format."""
+    print("🔍 ENHANCED SECURITY TEST PLANS")
+    print("-" * 50)
     print(f"URL: {url}")
     print(f"Plans Generated: {len(plans)}")
     print()
@@ -414,12 +614,49 @@ def _print_plans_for_url(url: str, plans: list):
     for i, plan in enumerate(plans, 1):
         title = plan.get('title', 'Untitled Plan')
         description = plan.get('description', 'No description available')
+        business_impact = plan.get('business_impact', '')
+        attack_complexity = plan.get('attack_complexity', '')
+        compliance_risk = plan.get('compliance_risk', '')
         
         print(f"📋 Plan {i}: {title}")
-        print(f"   Description: {description}")
+        print(f"   Description: {description[:150]}{'...' if len(description) > 150 else ''}")
+        
+        # Display enhanced fields if available
+        if business_impact:
+            # Extract impact level for display
+            impact_level = "UNKNOWN"
+            if any(term in business_impact.upper() for term in ['CRITICAL', 'CATASTROPHIC']):
+                impact_level = "🔴 CRITICAL"
+            elif 'HIGH' in business_impact.upper():
+                impact_level = "🟠 HIGH"
+            elif 'MEDIUM' in business_impact.upper():
+                impact_level = "🟡 MEDIUM"
+            elif 'LOW' in business_impact.upper():
+                impact_level = "🟢 LOW"
+            
+            print(f"   Business Impact: {impact_level}")
+            print(f"     Details: {business_impact[:100]}{'...' if len(business_impact) > 100 else ''}")
+        
+        if attack_complexity:
+            # Extract complexity level for display
+            complexity_level = "STANDARD"
+            if any(term in attack_complexity.upper() for term in ['EXPERT', 'VERY HIGH']):
+                complexity_level = "🔥 EXPERT"
+            elif 'HIGH' in attack_complexity.upper():
+                complexity_level = "⚡ HIGH"
+            elif 'MEDIUM' in attack_complexity.upper():
+                complexity_level = "⚙️ MEDIUM"
+            elif 'LOW' in attack_complexity.upper():
+                complexity_level = "🔧 LOW"
+            
+            print(f"   Attack Complexity: {complexity_level}")
+        
+        if compliance_risk:
+            print(f"   Compliance Risk: {compliance_risk[:80]}{'...' if len(compliance_risk) > 80 else ''}")
+        
         print()
     
-    print("-" * 40)
+    print("-" * 50)
     print()
 
 def main():

