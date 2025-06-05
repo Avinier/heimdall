@@ -58,71 +58,92 @@ class LLM:
         except Exception as e:
             raise Exception(f"[gemini_basic_call] Gemini basic call failed: {str(e)}")
 
-    def gemini_tool_use(self, prompt: str, tools: Dict[str, str], model: str = "gemini-2.0-flash") -> Dict:
+    def gemini_tool_use(self, prompt: str, tools: List[Dict], model: str = "gemini-2.0-flash") -> Dict:
+        """
+        Call Gemini with function calling support.
+        
+        Args:
+            prompt: The user prompt
+            tools: List of function declarations in Gemini format, e.g.:
+                [
+                    {
+                        "name": "schedule_meeting",
+                        "description": "Schedules a meeting with specified attendees",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "attendees": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "List of people attending"
+                                },
+                                "date": {
+                                    "type": "string",
+                                    "description": "Date of the meeting"
+                                }
+                            },
+                            "required": ["attendees", "date"]
+                        }
+                    }
+                ]
+            model: Gemini model to use
+            
+        Returns:
+            Dict with 'text', 'function_calls', and 'full_response' keys
+        """
         if not self.gemini_client:
             raise ValueError("Gemini client not initialized. Check GEMINI_API_KEY.")
         
-        try:         
-            # Convert tools to proper format
-            tool_objects = []
+        try:
+            # Validate tools format
+            if not isinstance(tools, list):
+                raise ValueError("Tools must be a list of function declarations")
             
-            # Process each function and its description
-            for name, description in tools.items():
-                # Extract parameters if specified in description
-                params = []
-                param_match = re.search(r"params=\((.*?)\)", description)
-                if param_match:
-                    # Extract and clean parameters
-                    params = [p.strip() for p in param_match.group(1).split(',')]
-                    # Remove the params=(...) from description
-                    description = description.replace(param_match.group(0), "").strip()
-                
-                # Create parameter properties
-                properties = {}
-                for param in params:
-                    properties[param] = {
-                        "type": "string",  # Default to string type
-                        "description": f"Parameter {param} for the {name} function"
-                    }
-                
-                # Create function declaration
-                function_declaration = {
-                    "name": name,
-                    "description": description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": params  # All extracted params are required
-                    }
-                }
-                tool_objects.append(types.Tool(function_declarations=[function_declaration]))
+            for tool in tools:
+                if not isinstance(tool, dict) or "name" not in tool:
+                    raise ValueError("Each tool must be a dict with a 'name' field")
+            
+            # Create Tool object with function declarations
+            tool_object = types.Tool(function_declarations=tools)
             
             # Create config with tools
-            config = types.GenerateContentConfig(tools=tool_objects)
+            config = types.GenerateContentConfig(tools=[tool_object])
             
-            # Create contents
-            contents = [types.Content(role="user", parts=[types.Part(text=prompt)])]
-            
+            # Generate content
             response = self.gemini_client.models.generate_content(
                 model=model,
-                contents=contents,
+                contents=prompt,
                 config=config
             )
             
             # Extract function calls if any
             function_calls = []
+            response_text = ""
+            
             if response.candidates and len(response.candidates) > 0:
                 candidate = response.candidates[0]
                 if candidate.content and candidate.content.parts:
                     for part in candidate.content.parts:
+                        # Check for function call
                         if hasattr(part, 'function_call') and part.function_call:
-                            function_calls.append(part.function_call)
+                            function_calls.append({
+                                "name": part.function_call.name,
+                                "args": dict(part.function_call.args) if part.function_call.args else {}
+                            })
+                        # Check for text response
+                        elif hasattr(part, 'text') and part.text:
+                            response_text = part.text
+            
+            # Fallback to response.text if available
+            if not response_text and hasattr(response, 'text'):
+                response_text = response.text
             
             return {
-                "text": getattr(response, 'text', ''),
+                "text": response_text,
                 "function_calls": function_calls,
                 "full_response": response
             }
+            
         except Exception as e:
             raise Exception(f"[gemini_tool_use] Gemini tool use failed: {str(e)}")
 
@@ -297,48 +318,56 @@ class LLM:
             raise Exception(f"[fireworks_call] Failed to extract content from Fireworks response: {str(e)}")
 
 
-    def fireworks_tool_use(self, prompt: str, tools: Dict[str, str], 
-                                model_key: str = "qwen3-235b", max_tokens: int = 4096,
+    def fireworks_tool_use(self, prompt: str, tools: List[Dict], 
+                                model_key: str = "qwen2.5-72b-instruct", max_tokens: int = 4096,
                                 temperature: float = 0.3, system_prompt: Optional[str] = None) -> Dict:
+        """
+        Call Fireworks AI with tool/function calling support.
+        
+        Args:
+            prompt: The user prompt
+            tools: List of tool definitions in Fireworks format, e.g.:
+                [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_financial_data",
+                            "description": "Get financial data for a company",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "company": {"type": "string", "description": "Company name"},
+                                    "metric": {"type": "string", "enum": ["revenue", "net_income"]},
+                                    "year": {"type": "integer", "description": "Financial year"}
+                                },
+                                "required": ["company", "metric", "year"]
+                            }
+                        }
+                    }
+                ]
+            model_key: Model key from available Fireworks models
+            max_tokens: Maximum tokens in response
+            temperature: Sampling temperature
+            system_prompt: Optional system prompt
+            
+        Returns:
+            Dict with 'content' and 'tool_calls' keys
+        """
         
         if model_key not in self.fireworks_models:
             raise ValueError(f"Unknown model key: {model_key}. Available: {list(self.fireworks_models.keys())}")
         
         model = self.fireworks_models[model_key]
         
-        # Convert tools dict to Fireworks format
-        formatted_tools = []
-        for name, description in tools.items():
-            # Extract parameters if specified in description
-            params = []
-            param_match = re.search(r"params=\((.*?)\)", description)
-            if param_match:
-                # Extract and clean parameters
-                params = [p.strip() for p in param_match.group(1).split(',')]
-                # Remove the params=(...) from description
-                description = description.replace(param_match.group(0), "").strip()
-            
-            # Create parameter properties
-            properties = {}
-            for param in params:
-                properties[param] = {
-                    "type": "string",  # Default to string type
-                    "description": f"Parameter {param} for the {name} function"
-                }
-            
-            # Create function declaration in Fireworks format
-            formatted_tools.append({
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": params  # All extracted params are required
-                    }
-                }
-            })
+        # Validate tools format
+        if not isinstance(tools, list):
+            raise ValueError("Tools must be a list of tool definitions")
+        
+        for tool in tools:
+            if not isinstance(tool, dict) or tool.get("type") != "function":
+                raise ValueError("Each tool must be a dict with 'type': 'function'")
+            if "function" not in tool or "name" not in tool["function"]:
+                raise ValueError("Each tool must have a 'function' with a 'name'")
         
         messages = []
         if system_prompt:
@@ -350,7 +379,7 @@ class LLM:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "messages": messages,
-            "tools": formatted_tools,
+            "tools": tools,
             "tool_choice": "auto"
         }
         
@@ -367,10 +396,9 @@ class LLM:
             
             return {
                 "content": message.get("content", ""),
-                "tool_calls": message.get("tool_calls", None)
+                "tool_calls": message.get("tool_calls", [])
             }
         
-        #exception handling
         except requests.exceptions.RequestException as e:
             raise Exception(f"[fireworks_tool_use] Fireworks function calling failed: {str(e)}")
         except json.JSONDecodeError as e:
@@ -422,12 +450,69 @@ if __name__ == "__main__":
 
     #Test function calling
     try:
-        print("=== Testing Function Calling ===")
-        response = llm.gemini_tool_use("What is machine learning?", [{"name": "get_current_weather", "description": "Get the current weather in a given location", "parameters": {"type": "object", "properties": {"location": {"type": "string", "description": "The city and country to get the weather for, e.g. San Francisco, CA"}}}}])
+        print("=== Testing Gemini Function Calling ===")
+        # Create a tool using the helper function
+        weather_tool = llm.create_gemini_tool(
+            name="get_current_weather",
+            description="Get the current weather in a given location",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "The city and state, e.g. San Francisco, CA"
+                    },
+                    "unit": {
+                        "type": "string",
+                        "enum": ["celsius", "fahrenheit"],
+                        "description": "The unit of temperature"
+                    }
+                },
+                "required": ["location"]
+            }
+        )
+        
+        tools = [weather_tool]
+        response = llm.gemini_tool_use("What is the weather in San Francisco?", tools)
         print(f"Response: {response}")
         print()
     except Exception as e:
-        print(f"Function calling test failed: {e}")
+        print(f"Gemini function calling test failed: {e}")
+        print()
+    
+    # Test Fireworks function calling
+    try:
+        print("=== Testing Fireworks Function Calling ===")
+        # Create a tool using the helper function
+        financial_tool = llm.create_fireworks_tool(
+            name="get_financial_data",
+            description="Get financial data for a company given the metric and year.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "metric": {
+                        "type": "string",
+                        "enum": ["net_income", "revenue", "ebitda"],
+                    },
+                    "financial_year": {
+                        "type": "integer",
+                        "description": "Year for which we want to get financial data."
+                    },
+                    "company": {
+                        "type": "string",
+                        "description": "Name of the company for which we want to get financial data."
+                    }
+                },
+                "required": ["metric", "financial_year", "company"],
+            }
+        )
+        
+        tools = [financial_tool]
+        response = llm.fireworks_tool_use("What are Nike's net income in 2022?", tools)
+        print(f"Response: {response}")
+        print()
+    except Exception as e:
+        print(f"Fireworks function calling test failed: {e}")
         print()
 
     # Test Fireworks AI call
