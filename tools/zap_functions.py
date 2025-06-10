@@ -23,11 +23,7 @@ except ImportError:
     )
 
 # ZAP-specific imports
-try:
-    from zapv2 import ZAPv2
-    ZAP_AVAILABLE = True
-except ImportError:
-    ZAP_AVAILABLE = False
+from zapv2 import ZAPv2
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -47,14 +43,6 @@ def zap_passive_scan(target_url: str, spider_minutes: int = 2) -> VAPTResult:
     """
     start_time = time.time()
     vulnerabilities = []
-    
-    if not ZAP_AVAILABLE:
-        return VAPTResult(
-            success=False,
-            tool_name="ZAP Passive Scan",
-            error="ZAP library not available. Install with: pip install python-owasp-zap-v2.4",
-            execution_time=time.time() - start_time
-        )
     
     try:
         # Initialize ZAP connection
@@ -159,14 +147,6 @@ def zap_active_scan(target_url: str, scan_policy: str = "Default Policy",
     """
     start_time = time.time()
     vulnerabilities = []
-    
-    if not ZAP_AVAILABLE:
-        return VAPTResult(
-            success=False,
-            tool_name="ZAP Active Scan",
-            error="ZAP library not available",
-            execution_time=time.time() - start_time
-        )
     
     try:
         zap = ZAPv2(proxies={'http': 'http://127.0.0.1:8080', 'https': 'http://127.0.0.1:8080'})
@@ -273,14 +253,6 @@ def zap_authenticated_scan(target_url: str, auth_config: Dict[str, str],
     start_time = time.time()
     vulnerabilities = []
     
-    if not ZAP_AVAILABLE:
-        return VAPTResult(
-            success=False,
-            tool_name="ZAP Authenticated Scan",
-            error="ZAP library not available",
-            execution_time=time.time() - start_time
-        )
-    
     try:
         zap = ZAPv2(proxies={'http': 'http://127.0.0.1:8080', 'https': 'http://127.0.0.1:8080'})
         
@@ -385,14 +357,6 @@ def zap_ajax_spider_scan(target_url: str, max_duration: int = 5) -> VAPTResult:
     """
     start_time = time.time()
     vulnerabilities = []
-    
-    if not ZAP_AVAILABLE:
-        return VAPTResult(
-            success=False,
-            tool_name="ZAP AJAX Spider",
-            error="ZAP library not available",
-            execution_time=time.time() - start_time
-        )
     
     try:
         zap = ZAPv2(proxies={'http': 'http://127.0.0.1:8080', 'https': 'http://127.0.0.1:8080'})
@@ -786,12 +750,8 @@ __all__ = [
     'zap_authenticated_scan',
     'zap_ajax_spider_scan',
     'zap_comprehensive_scan',
-    'zap_enterprise_scan',
-    'ZAP_AVAILABLE'
+    'zap_enterprise_scan'
 ]
 
 # Module initialization
-if ZAP_AVAILABLE:
-    logger.info("OWASP ZAP integration module loaded successfully")
-else:
-    logger.warning("OWASP ZAP library not available - install with: pip install python-owasp-zap-v2.4")
+logger.info("OWASP ZAP integration module loaded successfully")

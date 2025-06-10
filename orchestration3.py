@@ -1,4 +1,4 @@
-# Tool Calling + ActionerAgent Testing and Orchestration
+# Tool Calling Testing and Orchestration
 import sys
 import os
 from typing import Dict, List, Any, Optional
@@ -390,402 +390,341 @@ tools_gemini_compatible = [
     }
 ]
 
+def test_tool_use_functions():
+    """
+    Test function for gemini_tool_use and fireworks_tool_use functions
+    using security testing prompts based on actioner agent scenarios.
+    """
+    print("=" * 80)
+    print("TESTING TOOL USE FUNCTIONS - SECURITY TESTING SIMULATION")
+    print("=" * 80)
+    
+    # Initialize LLM
+    llm = LLM("Security Tool Testing LLM")
+    
+    # Security testing prompts inspired by actioner agent
+    test_prompts = [
+        {
+            "name": "SQL Injection Assessment",
+            "prompt": """You are conducting a comprehensive SQL injection security assessment on a high-risk financial application.
+            
+TARGET: https://bank.example.com/login
+BUSINESS IMPACT: CRITICAL - Financial system compromise, regulatory violations (PCI DSS, SOX)
+ATTACK COMPLEXITY: HIGH - Advanced evasion techniques required
+COMPLIANCE RISK: PCI DSS Level 1, SOX financial reporting controls
 
-def run_orchestration():
-    """
-    ActionerAgent integration testing with complex security assessment scenarios.
-    Tests multiple LLM configurations with sophisticated security test plans.
-    """
-    print("=" * 80)
-    print("ACTIONER AGENT SECURITY TESTING ORCHESTRATION")
-    print("=" * 80)
-    
-    # Enhanced security test plans with strategic context for ActionerAgent testing
-    security_test_plans = [
-        {
-            "title": "Critical Financial Transaction SQL Injection Assessment",
-            "description": "Test payment processing endpoints for SQL injection vulnerabilities that could compromise financial transactions",
-            "business_impact": "CRITICAL - Potential for unauthorized financial transactions and regulatory violations",
-            "attack_complexity": "HIGH - Requires sophisticated payload crafting and WAF bypass techniques",
-            "compliance_risk": "PCI DSS Level 1 violations, potential SOX compliance issues"
+Current findings:
+- Login form detected with username/password fields
+- Parameter 'user_id' in GET requests appears vulnerable
+- Error messages revealing database structure
+- No apparent WAF protection on login endpoint
+
+You need to:
+1. Test the login form for SQL injection vulnerabilities using advanced payloads
+2. Create a vulnerability report if injection is confirmed  
+3. Save the results for compliance documentation
+
+Use appropriate security testing tools to systematically test for SQL injection with business context awareness."""
         },
         {
-            "title": "Authentication Bypass and Privilege Escalation Testing",
-            "description": "Comprehensive testing of authentication mechanisms and authorization controls",
-            "business_impact": "HIGH - Administrative access compromise and data breach potential",
-            "attack_complexity": "MEDIUM-HIGH - Standard authentication bypass with session manipulation",
-            "compliance_risk": "GDPR access control violations, ISO 27001 authentication requirements"
+            "name": "XSS Vulnerability Discovery",
+            "prompt": """You are performing Cross-Site Scripting (XSS) vulnerability testing on a customer-facing e-commerce platform.
+
+TARGET: https://shop.example.com/search
+BUSINESS IMPACT: HIGH - Customer data exposure, session hijacking, reputational damage
+ATTACK COMPLEXITY: MEDIUM-HIGH - Input validation bypass required
+COMPLIANCE RISK: GDPR data protection, consumer privacy regulations
+
+Current context:
+- Search functionality with user input reflection
+- Customer reviews section with rich text support
+- No Content Security Policy headers detected
+- Session tokens stored in localStorage
+
+You need to:
+1. Test the search parameter for XSS vulnerabilities
+2. Test review submission forms for stored XSS
+3. Create comprehensive vulnerability documentation
+4. Assess business impact and compliance implications
+
+Execute systematic XSS testing with appropriate payload selection for the e-commerce context."""
         },
         {
-            "title": "Cross-Site Scripting in Customer Portal",
-            "description": "Test customer-facing interfaces for XSS vulnerabilities in input validation",
-            "business_impact": "MEDIUM - Customer data exposure and session hijacking risk",
-            "attack_complexity": "MEDIUM - Standard XSS techniques with content security policy bypass",
-            "compliance_risk": "GDPR privacy violations, customer trust impact"
+            "name": "Network Reconnaissance",
+            "prompt": """You are conducting network reconnaissance as part of an authorized penetration test for a healthcare organization.
+
+TARGET: 192.168.1.100 (healthcare-app.hospital.com)
+BUSINESS IMPACT: CRITICAL - Patient data protection, HIPAA compliance
+ATTACK COMPLEXITY: EXPERT - Healthcare networks require sophisticated techniques
+COMPLIANCE RISK: HIPAA, HITECH Act, state medical privacy laws
+
+Current intelligence:
+- Healthcare application server in DMZ
+- Known to run multiple services
+- Strict compliance requirements for patient data
+- 24/7 availability requirement for emergency systems
+
+You need to:
+1. Perform comprehensive network scanning to identify services
+2. Conduct targeted port scanning on discovered services
+3. Document findings with healthcare compliance context
+4. Assess impact on patient care continuity
+
+Execute reconnaissance with minimal impact to critical healthcare operations."""
         },
         {
-            "title": "API Authorization and IDOR Vulnerability Assessment",
-            "description": "Test REST API endpoints for authorization flaws and insecure direct object references",
-            "business_impact": "HIGH - Unauthorized access to sensitive customer and business data",
-            "attack_complexity": "HIGH - Business logic exploitation and advanced authorization testing",
-            "compliance_risk": "Multiple compliance frameworks - GDPR, PCI DSS, HIPAA data access controls"
+            "name": "API Security Assessment",
+            "prompt": """You are testing API security for a financial trading platform with real-time transaction processing.
+
+TARGET: https://api.trading.example.com/v1/
+BUSINESS IMPACT: CATASTROPHIC - Financial fraud, market manipulation, regulatory sanctions
+ATTACK COMPLEXITY: VERY HIGH - Advanced financial crime techniques required
+COMPLIANCE RISK: SEC regulations, FINRA compliance, anti-money laundering (AML)
+
+Current API analysis:
+- RESTful API with OAuth 2.0 authentication
+- JWT tokens for session management
+- Real-time trading endpoints exposed
+- Rate limiting appears insufficient for high-frequency trading
+
+You need to:
+1. Discover additional API endpoints beyond documentation
+2. Test JWT tokens for manipulation vulnerabilities
+3. Assess authorization controls on trading functions
+4. Create detailed security findings with financial impact assessment
+
+Execute advanced API security testing appropriate for financial trading systems."""
         }
     ]
     
-    # Fixed Test ActionerAgent with different LLM configurations
-    agent_configs = [
-        {
-            "name": "Gemini Basic Agent",
-            "api_type": "gemini",
-            "model": "gemini-2.0-flash",
-            "reasoning_config": {"include_thoughts": False}  # Disable reasoning for 2.0
-        },
-        {
-            "name": "Gemini 2.5 Reasoning Agent", 
-            "api_type": "gemini",
-            "model": "gemini-2.5-flash",  # Use 2.5 for reasoning
-            "reasoning_config": {"include_thoughts": True, "thinking_budget": None}
-        },
-        {
-            "name": "Gemini 2.5 Pro Reasoning Agent", 
-            "api_type": "gemini",
-            "model": "gemini-2.5-pro",  # Alternative 2.5 model
-            "reasoning_config": {"include_thoughts": True, "thinking_budget": None}
-        },
-        {
-            "name": "Fireworks DeepSeek Agent",
-            "api_type": "fireworks",
-            "fireworks_model_key": "deepseek-v3",
-            "reasoning_config": {"include_thoughts": False}  # Disable reasoning initially to test API
-        }
-    ]
-    
-    print(f"\nTesting {len(agent_configs)} ActionerAgent configurations with {len(security_test_plans)} security test plans...\n")
-    
-    for config_idx, config in enumerate(agent_configs, 1):
-        print(f"\n🤖 TESTING {config['name'].upper()} ({config_idx}/{len(agent_configs)})")
-        print("=" * 50)
+    # Run tests for each prompt
+    for i, test_case in enumerate(test_prompts, 1):
+        print(f"\n{'='*60}")
+        print(f"TEST CASE {i}: {test_case['name']}")
+        print(f"{'='*60}")
         
         try:
-            # Initialize ActionerAgent with current configuration
-            agent = ActionerAgent(
-                desc=f"Security Testing Agent - {config['name']}",
-                api_type=config['api_type'],
-                model=config.get('model', 'gemini-2.0-flash'),
-                fireworks_model_key=config.get('fireworks_model_key', 'deepseek-v3'),
-                temperature=0.3,
-                reasoning_config=config['reasoning_config']
+            # Test Gemini tool use
+            print(f"\n🔍 TESTING GEMINI TOOL USE...")
+            print("-" * 40)
+            
+            gemini_result = llm.gemini_tool_use(
+                prompt=test_case['prompt'],
+                tools=tools_gemini_compatible,
+                model="gemini-2.0-flash"
             )
             
-            print(f"✓ {config['name']} initialized successfully")
-            print(f"  API Type: {config['api_type']}")
-            print(f"  Model: {config.get('model', config.get('fireworks_model_key', 'default'))}")
-            print(f"  Reasoning: {config['reasoning_config']['include_thoughts']}")
+            print(f"✅ Gemini Response:")
+            print(f"Text: {gemini_result.get('text', 'No text response')[:200]}...")
+            print(f"Function Calls: {len(gemini_result.get('function_calls', []))} tool(s) called")
             
-            # Test each security plan with this agent configuration
-            for plan_idx, plan in enumerate(security_test_plans, 1):
-                print(f"\n  📋 Plan {plan_idx}/{len(security_test_plans)}: {plan['title']}")
-                print(f"     Business Impact: {plan['business_impact']}")
-                print(f"     Attack Complexity: {plan['attack_complexity']}")
-                
-                try:
-                    # Reset agent session for each plan
-                    agent.reset_session()
-                    agent.set_min_actions(2)  # Reduced for testing
+            if gemini_result.get('function_calls'):
+                for j, call in enumerate(gemini_result['function_calls'], 1):
+                    print(f"  {j}. {call.get('name', 'unknown')}({list(call.get('args', {}).keys())})")
                     
-                    # Simulate page data
-                    mock_page_data = f"""
-                    <html>
-                    <head><title>Test Application - {plan['title']}</title></head>
-                    <body>
-                        <nav>
-                            <a href="/login">Login</a>
-                            <a href="/api/v1/users">API</a>
-                            <a href="/admin">Admin</a>
-                            <a href="/docs/">Documentation</a>
-                        </nav>
-                        <form id="search-form">
-                            <input name="query" placeholder="Search...">
-                            <button type="submit">Search</button>
-                        </form>
-                    </body>
-                    </html>
-                    """
-                    
-                    # Generate action using ActionerAgent with error handling
-                    try:
-                        response = agent.generate_action_of_plan_step(
-                            plan=plan,
-                            page_data=mock_page_data,
-                            tool_output="Initial page load successful",
-                            conversation_history=[
-                                f"Starting security assessment: {plan['title']}",
-                                f"Business impact level: {plan['business_impact']}",
-                                f"Required attack complexity: {plan['attack_complexity']}"
-                            ]
-                        )
-                        
-                        print(f"     ✓ Action Generated:")
-                        print(f"       Discussion: {response['discussion'][:200]}...")
-                        print(f"       Action: {response['action']}")
-                        
-                        # Validate that the action is properly formatted
-                        action = response['action']
-                        if any(cmd in action for cmd in ['goto', 'click', 'fill', 'submit', 'execute_js']):
-                            print(f"       ✓ Valid security testing action generated")
-                        else:
-                            print(f"       ⚠ Non-standard action generated: {action}")
-                        
-                        # Test one more action to see progression
-                        try:
-                            follow_up_response = agent.generate_action_of_plan_step(
-                                plan=plan,
-                                page_data="<html><body><h1>Login Page</h1><form><input name='username'><input name='password' type='password'></form></body></html>",
-                                tool_output=f"Previous action completed: {action}",
-                                conversation_history=[
-                                    f"Executed: {action}",
-                                    "Now on login page with authentication form"
-                                ]
-                            )
-                            
-                            print(f"       Follow-up Action: {follow_up_response['action']}")
-                            
-                        except Exception as e:
-                            print(f"       ⚠ Follow-up action failed: {str(e)}")
-                            
-                    except Exception as e:
-                        print(f"     ✗ Action generation failed: {str(e)}")
-                        # Try to continue with next plan
-                        continue
-                
-                except Exception as e:
-                    print(f"     ✗ Error testing plan: {str(e)}")
-                
-                time.sleep(0.5)  # Brief delay between plans
-            
         except Exception as e:
-            print(f"✗ Failed to initialize {config['name']}: {str(e)}")
-            # Continue with next configuration
-            continue
+            print(f"❌ Gemini test failed: {str(e)}")
         
-        print("-" * 50)
-        time.sleep(1)  # Rate limiting between agent configs
-    
-    # ========== SIMPLIFIED COMPLEX SCENARIO TESTING ==========
-    print("\n" + "="*60)
-    print("COMPLEX SCENARIO INTEGRATION TESTING")
-    print("="*60)
-    
-    # Simplified complex scenarios for testing
-    complex_scenarios = [
-        {
-            "title": "E-commerce Security Assessment",
-            "description": "Security testing of e-commerce platform with payment processing",
-            "business_impact": "CRITICAL - E-commerce platform handling financial transactions",
-            "attack_complexity": "HIGH - Multi-vector attack simulation",
-            "compliance_risk": "PCI DSS Level 1, GDPR compliance requirements"
-        }
-    ]
-    
-    print(f"\nTesting {len(complex_scenarios)} complex scenarios with working agent configurations...\n")
-    
-    # Use only the working agent configurations
-    working_agent_configs = [
-        {
-            "name": "Gemini Basic Agent (Tested)",
-            "api_type": "gemini",
-            "model": "gemini-2.0-flash", 
-            "reasoning_config": {"include_thoughts": False}
-        }
-    ]
-    
-    for scenario_idx, scenario in enumerate(complex_scenarios, 1):
-        print(f"\n🎯 COMPLEX SCENARIO {scenario_idx}/{len(complex_scenarios)}: {scenario['title']}")
-        print("=" * 70)
-        print(f"Business Impact: {scenario['business_impact']}")
-        print(f"Attack Complexity: {scenario['attack_complexity']}")
-        print(f"Compliance Risk: {scenario['compliance_risk']}")
-        
-        # Test this scenario with working agent configurations
-        for config in working_agent_configs:
-            print(f"\n  🤖 Testing with {config['name']}")
-            print("  " + "-" * 50)
+        try:
+            # Test Fireworks tool use  
+            print(f"\n🔥 TESTING FIREWORKS TOOL USE...")
+            print("-" * 40)
             
-            try:
-                # Initialize ActionerAgent for complex scenario
-                agent = ActionerAgent(
-                    desc=f"Elite Security Agent - {scenario['title']}",
-                    api_type=config['api_type'],
-                    model=config.get('model', 'gemini-2.0-flash'),
-                    fireworks_model_key=config.get('fireworks_model_key', 'deepseek-v3'),
-                    temperature=0.2,  # Lower temperature for complex scenarios
-                    reasoning_config=config['reasoning_config']
-                )
-                
-                agent.set_min_actions(2)  # Reduced for testing
-                
-                # Simulate realistic application environment
-                complex_page_data = f"""
-                <html>
-                <head>
-                    <title>{scenario['title']} - Security Assessment Target</title>
-                    <meta name="application-type" content="enterprise-security-testing">
-                </head>
-                <body>
-                    <header>
-                        <nav class="main-navigation">
-                            <a href="/dashboard">Dashboard</a>
-                            <a href="/api/v2/users">User Management API</a>
-                            <a href="/admin/settings">Administrative Controls</a>
-                            <a href="/api/payments/process">Payment Processing</a>
-                            <a href="/reports/compliance">Compliance Reports</a>
-                            <a href="/docs/api">API Documentation</a>
-                        </nav>
-                    </header>
-                    <main>
-                        <section class="security-critical">
-                            <h1>Enterprise Security Testing Environment</h1>
-                            <form id="advanced-search" method="post" action="/search/advanced">
-                                <input name="query" type="text" placeholder="Advanced search query...">
-                                <input name="filters" type="hidden" value="sensitive_data">
-                                <select name="category">
-                                    <option value="financial">Financial Records</option>
-                                    <option value="personal">Personal Information</option>
-                                    <option value="medical">Medical Data</option>
-                                </select>
-                                <button type="submit">Execute Search</button>
-                            </form>
-                        </section>
-                    </main>
-                </body>
-                </html>
-                """
-                
-                # Execute multi-step security assessment with error handling
-                conversation_history = [
-                    f"Initiating {scenario['attack_complexity']} security assessment",
-                    f"Target: {scenario['title']}",
-                    f"Business impact classification: {scenario['business_impact']}",
-                    f"Compliance requirements: {scenario['compliance_risk']}"
-                ]
-                
-                # Step 1: Initial assessment
-                print("    Step 1: Initial Security Assessment")
-                try:
-                    step1_response = agent.generate_action_of_plan_step(
-                        plan=scenario,
-                        page_data=complex_page_data,
-                        tool_output="Complex application environment loaded successfully",
-                        conversation_history=conversation_history
-                    )
-                    
-                    print(f"      Discussion: {step1_response['discussion'][:250]}...")
-                    print(f"      Action: {step1_response['action']}")
-                    
-                    # Step 2: Follow-up based on initial findings
-                    print("    Step 2: Advanced Exploitation Attempt")
-                    conversation_history.append(f"Executed: {step1_response['action']}")
-                    conversation_history.append("Discovered targets, proceeding with advanced techniques")
-                    
-                    step2_response = agent.generate_action_of_plan_step(
-                        plan=scenario,
-                        page_data="<html><body><h1>Authentication Required</h1><form id='login'><input name='username'><input name='password' type='password'></form></body></html>",
-                        tool_output=f"Previous action result: {step1_response['action']} - Authentication challenge encountered",
-                        conversation_history=conversation_history
-                    )
-                    
-                    print(f"      Discussion: {step2_response['discussion'][:250]}...")
-                    print(f"      Action: {step2_response['action']}")
-                    
-                    # Validate testing approach
-                    actions_taken = [step1_response['action'], step2_response['action']]
-                    
-                    print("    Assessment Quality Analysis:")
-                    if any('execute_js' in action for action in actions_taken):
-                        print("      ✓ Advanced JavaScript exploitation techniques used")
-                    if any('admin' in action for action in actions_taken):
-                        print("      ✓ Administrative interface targeting implemented")
-                    if any('api' in action for action in actions_taken):
-                        print("      ✓ API security assessment conducted")
-                    
-                    print(f"      Actions executed: {len(actions_taken)}/{len(actions_taken)} successful")
-                    
-                except Exception as e:
-                    print(f"      ✗ Error in complex scenario step execution: {str(e)}")
-                
-            except Exception as e:
-                print(f"      ✗ Error in complex scenario initialization: {str(e)}")
+            fireworks_result = llm.fireworks_tool_use(
+                prompt=test_case['prompt'],
+                tools=tools_fw_compatible,
+                model_key="deepseek-v3",
+                temperature=0.3,
+                system_prompt="You are an elite security testing agent. Analyze the security scenario and select appropriate tools for testing."
+            )
             
-            time.sleep(1)  # Rate limiting between configurations
-        
-        print("-" * 70)
-        time.sleep(2)  # Delay between complex scenarios
+            print(f"✅ Fireworks Response:")
+            print(f"Content: {fireworks_result.get('content', 'No content')[:200]}...")
+            print(f"Tool Calls: {len(fireworks_result.get('tool_calls', []))} tool(s) called")
+            
+            if fireworks_result.get('tool_calls'):
+                for j, call in enumerate(fireworks_result['tool_calls'], 1):
+                    func = call.get('function', {})
+                    print(f"  {j}. {func.get('name', 'unknown')}({list(func.get('arguments', {}).keys()) if isinstance(func.get('arguments'), dict) else 'args'})")
+                    
+        except Exception as e:
+            print(f"❌ Fireworks test failed: {str(e)}")
+            
+        # Pause between tests
+        if i < len(test_prompts):
+            print(f"\n⏳ Waiting 2 seconds before next test...")
+            time.sleep(2)
     
-    print("\n" + "=" * 80)
-    print("ACTIONER AGENT ORCHESTRATION TESTING COMPLETE")
-    print("=" * 80)
-    print("\nTesting Summary:")
-    print("✓ ActionerAgent integration with multiple LLM configurations")
-    print("✓ Fixed LLM calling issues with proper model selection")
-    print("✓ Added comprehensive error handling for API failures")
-    print("✓ Complex security scenario testing with strategic business context")
-    print("\nActionerAgent successfully demonstrated security testing capabilities with robust error handling!")
+    print(f"\n{'='*80}")
+    print("TOOL USE TESTING COMPLETED")
+    print(f"{'='*80}")
+    
+    # Test additional scenarios
+    print(f"\n🧪 TESTING EDGE CASES...")
+    print("-" * 40)
+    
+    # Test with minimal prompt
+    minimal_prompt = "Test the URL https://example.com for SQL injection in the 'id' parameter."
+    
+    try:
+        print("Testing minimal prompt with Gemini...")
+        minimal_result = llm.gemini_tool_use(
+            prompt=minimal_prompt,
+            tools=tools_gemini_compatible[:3],  # Only first 3 tools
+            model="gemini-2.0-flash"
+        )
+        print(f"✅ Minimal test: {len(minimal_result.get('function_calls', []))} tools called")
+        
+    except Exception as e:
+        print(f"❌ Minimal test failed: {str(e)}")
+    
+    # Test with comprehensive security assessment prompt
+    comprehensive_prompt = """
+    Conduct a comprehensive security assessment of the web application at https://app.example.com with the following requirements:
+    
+    BUSINESS CONTEXT:
+    - E-commerce platform handling credit card transactions
+    - Customer PII including names, addresses, payment data
+    - Business impact: CRITICAL financial and reputation risk
+    - Compliance: PCI DSS Level 1, GDPR, state privacy laws
+    
+    TECHNICAL SCOPE:
+    - Web application security testing (OWASP Top 10)
+    - API security assessment (REST/GraphQL)
+    - Authentication and session management
+    - Input validation and injection vulnerabilities
+    - Business logic and authorization flaws
+    
+    ATTACK COMPLEXITY: HIGH
+    - Advanced evasion techniques required
+    - WAF bypass methods needed  
+    - Custom payload development
+    - Multi-vector attack chains
+    
+    Execute a systematic security assessment using appropriate testing tools and methodologies.
+    """
+    
+    try:
+        print("\nTesting comprehensive assessment with Fireworks...")
+        comp_result = llm.fireworks_tool_use(
+            prompt=comprehensive_prompt,
+            tools=tools_fw_compatible,
+            model_key="qwen2.5-72b-instruct",
+            temperature=0.2,
+            system_prompt="You are an expert penetration tester conducting a comprehensive security assessment. Select the most appropriate tools for systematic testing."
+        )
+        print(f"✅ Comprehensive test: {len(comp_result.get('tool_calls', []))} tools called")
+        
+        if comp_result.get('tool_calls'):
+            print("Tool selection strategy:")
+            for call in comp_result['tool_calls']:
+                func = call.get('function', {})
+                print(f"  - {func.get('name', 'unknown')}")
+                
+    except Exception as e:
+        print(f"❌ Comprehensive test failed: {str(e)}")
+    
+    print(f"\n🎯 TESTING SUMMARY COMPLETE")
+    return True
 
 
-def test_individual_tools():
+def test_single_tool_scenario(tool_name: str, prompt: str, api_type: str = "both"):
     """
-    Test individual security tools with mock implementations to verify tool calling works
+    Test a specific tool scenario with either Gemini, Fireworks, or both.
+    
+    Args:
+        tool_name: Name of the tool to focus testing on
+        prompt: Security testing prompt
+        api_type: "gemini", "fireworks", or "both"
     """
-    print("\n🔧 TESTING INDIVIDUAL TOOL IMPLEMENTATIONS")
+    print(f"\n🎯 FOCUSED TOOL TEST: {tool_name}")
     print("-" * 50)
     
-    # Mock tool implementations for testing
-    def mock_sql_injection_test(url, parameter="id", payload=None, test_type="basic"):
-        return {
-            "status": "completed",
-            "vulnerabilities_found": 1,
-            "details": f"SQL injection found in parameter '{parameter}' at {url}",
-            "severity": "High",
-            "payload_used": payload or "' OR 1=1--"
-        }
+    llm = LLM("Focused Tool Testing")
     
-    def mock_xss_test(url, parameter="search", payload=None, test_type="basic"):
-        return {
-            "status": "completed", 
-            "vulnerabilities_found": 0,
-            "details": f"No XSS vulnerabilities found in parameter '{parameter}' at {url}",
-            "severity": "None"
-        }
+    # Filter tools to focus on specific tool
+    focused_tools_gemini = [tool for tool in tools_gemini_compatible if tool['name'] == tool_name]
+    focused_tools_fw = [tool for tool in tools_fw_compatible if tool['function']['name'] == tool_name]
     
-    def mock_nmap_scan(target, scan_type="basic", ports=None):
-        return {
-            "status": "completed",
-            "target": target,
-            "open_ports": [22, 80, 443],
-            "services": ["ssh", "http", "https"],
-            "scan_type": scan_type
-        }
+    if not focused_tools_gemini and not focused_tools_fw:
+        print(f"❌ Tool '{tool_name}' not found in tool definitions")
+        return False
     
-    # Test mock implementations
-    test_cases = [
-        ("SQL Injection", mock_sql_injection_test, {"url": "https://test.com", "parameter": "id"}),
-        ("XSS Test", mock_xss_test, {"url": "https://test.com", "parameter": "search"}),
-        ("Nmap Scan", mock_nmap_scan, {"target": "192.168.1.1", "scan_type": "basic"})
-    ]
-    
-    for test_name, func, args in test_cases:
-        print(f"\n{test_name}:")
+    if api_type in ["gemini", "both"] and focused_tools_gemini:
         try:
-            result = func(**args)
-            print(f"  ✓ Success: {json.dumps(result, indent=2)}")
+            print(f"Testing {tool_name} with Gemini...")
+            result = llm.gemini_tool_use(
+                prompt=prompt,
+                tools=focused_tools_gemini,
+                model="gemini-2.0-flash"
+            )
+            print(f"✅ Gemini called {tool_name}: {len(result.get('function_calls', []))} times")
+            
+            for call in result.get('function_calls', []):
+                print(f"  Args: {call.get('args', {})}")
+                
         except Exception as e:
-            print(f"  ✗ Error: {e}")
+            print(f"❌ Gemini {tool_name} test failed: {str(e)}")
+    
+    if api_type in ["fireworks", "both"] and focused_tools_fw:
+        try:
+            print(f"Testing {tool_name} with Fireworks...")
+            result = llm.fireworks_tool_use(
+                prompt=prompt,
+                tools=focused_tools_fw,
+                model_key="deepseek-v3",
+                system_prompt=f"You are testing the {tool_name} security tool. Use it appropriately based on the scenario."
+            )
+            print(f"✅ Fireworks called {tool_name}: {len(result.get('tool_calls', []))} times")
+            
+            for call in result.get('tool_calls', []):
+                func = call.get('function', {})
+                if isinstance(func.get('arguments'), str):
+                    try:
+                        args = json.loads(func.get('arguments', '{}'))
+                    except:
+                        args = func.get('arguments', {})
+                else:
+                    args = func.get('arguments', {})
+                print(f"  Args: {args}")
+                
+        except Exception as e:
+            print(f"❌ Fireworks {tool_name} test failed: {str(e)}")
+    
+    return True
 
 
 if __name__ == "__main__":
-    # Run the orchestration tests
-    run_orchestration()
+    print("🚀 Starting Tool Use Function Testing...")
     
-    # Optionally run individual tool tests
-    test_individual_tools()
+    # Run comprehensive tests
+    test_tool_use_functions()
+    
+    # Run focused tests
+    print(f"\n{'='*60}")
+    print("FOCUSED TOOL TESTS")
+    print(f"{'='*60}")
+    
+    # Test SQL injection specifically
+    test_single_tool_scenario(
+        tool_name="sql_injection_test",
+        prompt="Test https://login.bank.com/auth for SQL injection in the username parameter. This is a critical financial system requiring advanced testing techniques.",
+        api_type="both"
+    )
+    
+    # Test XSS specifically  
+    test_single_tool_scenario(
+        tool_name="xss_test",
+        prompt="Assess https://forum.example.com/search for XSS vulnerabilities. User input is reflected in search results without proper sanitization.",
+        api_type="both"
+    )
+    
+    # Test nmap specifically
+    test_single_tool_scenario(
+        tool_name="nmap_scan",
+        prompt="Perform network reconnaissance on target 192.168.1.50 for a healthcare penetration test. Use comprehensive scanning to identify all services.",
+        api_type="both"
+    )
+    
+    print(f"\n✅ ALL TOOL USE TESTING COMPLETED!")
 
