@@ -6,6 +6,7 @@ from playwright.sync_api import Page
 from playwright.async_api import async_playwright, Browser, Page as AsyncPage
 import logging
 from tools.llms import LLM
+import time
 
 
 # Set up logging
@@ -278,7 +279,16 @@ class PlaywrightTools:
             func = getattr(self, func_name)
             
             # Special case for functions that need page object
-            page_required = func_name in ['goto', 'click', 'fill', 'submit', 'execute_js', 'refresh', 'presskey']
+            page_required = func_name in [
+                'goto', 'click', 'fill', 'submit', 'execute_js', 'refresh', 'presskey',
+                'wait_for_element', 'wait_for_navigation', 'screenshot', 'get_cookies', 
+                'set_cookies', 'clear_cookies', 'set_headers', 'intercept_requests',
+                'bypass_csp', 'extract_forms', 'extract_links', 'set_input_value',
+                'get_page_source', 'simulate_user_interaction', 'set_geolocation',
+                'block_resources', 'modify_response', 'fill_form_with_payload',
+                'submit_form_and_get_response', 'analyze_network_traffic', 'bypass_waf',
+                'check_page_access'
+            ]
             
             # Parse arguments safely
             if not args_str:
@@ -460,247 +470,6 @@ class PlaywrightTools:
             # Not a number, return as is
             return arg_str
 
-    def extract_tool_use(self, action: str) -> str:
-        # Safety check for empty input
-        if not action or action.isspace():
-            if self.debug:
-                print("Empty action text, defaulting to docs navigation")
-            return 'goto(page, "/docs/")'
-        
-        # Clean up the input - remove any "REFORMATTED:" text or similar prefixes
-        action = re.sub(r'REFORMATTED:\s*', '', action)
-        
-        # NEW: Handle YAML-style planner output format
-        # Check if this looks like a YAML plan with title/description
-        yaml_title_pattern = r'title:\s*(.+?)(?:\n|$)'
-        yaml_desc_pattern = r'description:\s*(.+?)(?:\n|$)'
-        
-        title_match = re.search(yaml_title_pattern, action, re.IGNORECASE | re.DOTALL)
-        desc_match = re.search(yaml_desc_pattern, action, re.IGNORECASE | re.DOTALL)
-        
-        if title_match or desc_match:
-            # This looks like planner output - convert to tool command
-            title = title_match.group(1).strip() if title_match else ""
-            description = desc_match.group(1).strip() if desc_match else ""
-            combined_text = f"{title} {description}".strip()
-            
-            if self.debug:
-                print(f"Detected planner YAML format. Converting: '{combined_text[:100]}...'")
-            
-            return self._convert_plan_to_tool_command(combined_text)
-        
-        # First try to extract using pattern matching for ACTION section
-        action_pattern = r'\*\s*ACTION\s*\n(.*?)(?:\n|$)'
-        action_match = re.search(action_pattern, action, re.IGNORECASE)
-        
-        if action_match:
-            # Extract the raw command
-            raw_tool_use = action_match.group(1).strip()
-            
-            # Fix any unterminated string literals first at this stage
-            raw_tool_use = self._fix_unterminated_strings(raw_tool_use)
-            
-            # Extract just the command part, excluding any explanatory text that follows
-            # This pattern looks for a complete function call with balanced parentheses
-            complete_command_pattern = r'((?:goto|click|fill|submit|execute_js|refresh|presskey|auth_needed|get_user_input|python_interpreter|complete)\s*\([^)]*\))'
-            complete_command_match = re.search(complete_command_pattern, raw_tool_use)
-            
-            if complete_command_match:
-                # We found a properly formatted command with balanced parentheses
-                tool_use = complete_command_match.group(1)
-            else:
-                # No complete command found, look for a partial command pattern
-                partial_command_pattern = r'((?:goto|click|fill|submit|execute_js|refresh|presskey|auth_needed|get_user_input|python_interpreter|complete)\s*\([^)]*)'
-                partial_command_match = re.search(partial_command_pattern, raw_tool_use)
-                
-                if partial_command_match:
-                    # Get the partial command
-                    tool_use = partial_command_match.group(1)
-                    
-                    # Find if there's any trailing text after a quoted string that should be removed
-                    # This handles cases like: goto(page, "url") to understand what endpoints are available
-                    last_quote = max(tool_use.rfind('"'), tool_use.rfind("'"))
-                    if last_quote > 0:
-                        space_after_quote = tool_use.find(' ', last_quote + 1)
-                        if space_after_quote > 0:
-                            tool_use = tool_use[:space_after_quote]
-                    
-                    # Make sure command ends with closing parenthesis
-                    if not tool_use.endswith(')'):
-                        tool_use += ')'
-                else:
-                    # No well-formed command found, use the entire line
-                    tool_use = raw_tool_use
-                    if self.debug:
-                        print(f"Using full ACTION text as no clean command found: '{tool_use}'")
-                
-            # Fix common issues before full processing
-            tool_use = self._pre_process_tool_use(tool_use)
-            
-            # Validate and fix the extracted tool use
-            return self._fix_tool_use(tool_use)
-        
-        # If no explicit ACTION section, try to detect command-like statements
-        # Look for common patterns in natural language descriptions
-        url_navigate_pattern = r'(?:navigate|go|visit|browse)\s+(?:to|the)?\s+(?:URL|page|website|site|link|documentation)?\s*(?:at|:)?\s*[\'"]?(https?://[^\s\'"]+)[\'"]?'
-        url_match = re.search(url_navigate_pattern, action, re.IGNORECASE)
-        if url_match:
-            url = url_match.group(1)
-            return f'goto(page, "{url}")'
-            
-        # Look for "curl" commands
-        curl_pattern = r'curl\s+(https?://[^\s]+)'
-        curl_match = re.search(curl_pattern, action, re.IGNORECASE)
-        if curl_match:
-            url = curl_match.group(1)
-            return f'goto(page, "{url}")'
-            
-        # Look for documentation references specifically
-        docs_pattern = r'(?:docs|documentation|api\s*docs)'
-        if re.search(docs_pattern, action, re.IGNORECASE):
-            if hasattr(self, 'current_url') and self.current_url:
-                # Try to construct a docs URL from the current URL
-                base_url = re.match(r'(https?://[^/]+)', self.current_url)
-                if base_url:
-                    return f'goto(page, "{base_url.group(1)}/docs/")'
-            
-            # Default to a generic /docs/ path if we can't determine a base URL
-            return 'goto(page, "/docs/")'
-        
-        # Try direct extraction of tool commands with proper page parameter
-        command_with_page_pattern = r'((?:goto|click|fill|submit|execute_js|refresh|presskey)\s*\(\s*page\s*,\s*[^)]*\))'
-        command_with_page_match = re.search(command_with_page_pattern, action)
-        if command_with_page_match:
-            return command_with_page_match.group(1)
-        
-        # Try direct extraction of tool commands that might be missing page parameter
-        command_pattern = r'((?:goto|click|fill|submit|execute_js|refresh|presskey)\s*\([^)]*\))'
-        command_match = re.search(command_pattern, action)
-        if command_match:
-            # Fix and return the extracted command
-            return self._fix_tool_use(command_match.group(1))
-        
-        # If no direct command found, try with LLM-based extraction as last resort
-        if self.llm:
-            prompt = f"""
-                Convert the following text into a SINGLE valid tool call for a security testing agent.
-                Choose from these tools only:
-                
-                goto(page, "URL") - Navigate to a URL
-                click(page, "selector") - Click an element
-                fill(page, "selector", "value") - Fill a form field
-                submit(page, "selector") - Submit a form
-                execute_js(page, "js_code") - Run JavaScript code
-                auth_needed() - Signal authentication is needed
-                refresh(page) - Refresh the page
-                complete() - Mark test as complete
-                
-                IMPORTANT: ALL tools that interact with the page MUST have 'page' as the FIRST parameter.
-                
-                Text to convert:
-                {action}
-                
-                ONLY RETURN the exact code for the function call with no explanations, quotes, markdown syntax, or other text.
-                Examples:
-                - "navigate to the documentation" → goto(page, "/docs/")
-                - "check authentication" → auth_needed()
-                - "submit the login form" → submit(page, "#login-form")
-            """
-            response = self.llm.gemini_basic_call(prompt)
-            
-            # Clean up LLM response
-            response = response.strip()
-            response = re.sub(r'^```.*?\n', '', response)  # Remove opening code fence if present
-            response = re.sub(r'\n```$', '', response)     # Remove closing code fence if present
-            response = re.sub(r'^`|`$', '', response)      # Remove single backticks
-            response = re.sub(r'^\s*-\s+', '', response)   # Remove bullet points if present
-            
-            # Process and fix the LLM-generated command
-            return self._fix_tool_use(response)
-        
-        # Default fallback if no LLM available
-        return 'goto(page, "/docs/")'
-
-    def _convert_plan_to_tool_command(self, plan_text: str) -> str:
-        if not plan_text:
-            return 'goto(page, "/docs/")'
-            
-        plan_lower = plan_text.lower()
-        
-        # SQL Injection testing patterns
-        if any(term in plan_lower for term in ['sql injection', 'login form', 'authentication bypass']):
-            # Look for specific form paths in the text
-            form_paths = re.findall(r'/[a-zA-Z0-9_/\-\.]+', plan_text)
-            if form_paths:
-                login_path = next((path for path in form_paths if 'login' in path or 'auth' in path), form_paths[0])
-                return f'goto(page, "{login_path}")'
-            return 'goto(page, "/login/")'
-        
-        # API testing patterns
-        if any(term in plan_lower for term in ['api', 'endpoint', 'authorization testing', 'idor']):
-            # Look for API paths in the text
-            api_paths = re.findall(r'/api/[a-zA-Z0-9_/\-\.]+', plan_text)
-            if api_paths:
-                return f'goto(page, "{api_paths[0]}")'
-            return 'goto(page, "/api/")'
-        
-        # XSS testing patterns
-        if any(term in plan_lower for term in ['xss', 'cross-site scripting', 'input vectors', 'search form']):
-            # Look for search or form endpoints
-            search_paths = re.findall(r'/[a-zA-Z0-9_/\-\.]*search[a-zA-Z0-9_/\-\.]*', plan_text)
-            if search_paths:
-                return f'goto(page, "{search_paths[0]}")'
-            # Look for any form-related paths
-            form_paths = re.findall(r'/[a-zA-Z0-9_/\-\.]+', plan_text)
-            if form_paths:
-                return f'goto(page, "{form_paths[0]}")'
-            return 'goto(page, "/search/")'
-        
-        # Session management testing
-        if any(term in plan_lower for term in ['session', 'csrf', 'token', 'cookie']):
-            return 'goto(page, "/login/")'
-        
-        # Information disclosure testing
-        if any(term in plan_lower for term in ['information disclosure', 'error', 'stack trace', 'technology stack']):
-            # Try to trigger errors on common endpoints
-            return 'goto(page, "/admin/")'
-        
-        # Admin panel testing
-        if any(term in plan_lower for term in ['admin', 'dashboard', 'panel']):
-            return 'goto(page, "/admin/")'
-        
-        # File upload testing
-        if any(term in plan_lower for term in ['file upload', 'upload', 'document']):
-            upload_paths = re.findall(r'/[a-zA-Z0-9_/\-\.]*upload[a-zA-Z0-9_/\-\.]*', plan_text)
-            if upload_paths:
-                return f'goto(page, "{upload_paths[0]}")'
-            return 'goto(page, "/upload/")'
-        
-        # Look for specific endpoints mentioned in the text
-        endpoints = re.findall(r'/[a-zA-Z0-9_/\-\.]+', plan_text)
-        if endpoints:
-            # Prioritize more interesting endpoints
-            priority_endpoints = [ep for ep in endpoints if any(term in ep.lower() 
-                                 for term in ['login', 'admin', 'api', 'auth', 'upload', 'search'])]
-            if priority_endpoints:
-                return f'goto(page, "{priority_endpoints[0]}")'
-            return f'goto(page, "{endpoints[0]}")'
-        
-        # Look for URLs in the text
-        urls = re.findall(r'https?://[^\s]+', plan_text)
-        if urls:
-            return f'goto(page, "{urls[0]}")'
-        
-        # Default based on common security testing patterns
-        if 'authentication' in plan_lower or 'login' in plan_lower:
-            return 'goto(page, "/login/")'
-        elif 'api' in plan_lower:
-            return 'goto(page, "/api/")'
-        elif 'admin' in plan_lower:
-            return 'goto(page, "/admin/")'
-        else:
-            return 'goto(page, "/docs/")'
-
     def _fix_unterminated_strings(self, text: str) -> str:
         # If empty or None, return safely
         if not text:
@@ -843,7 +612,16 @@ class PlaywrightTools:
             return 'goto(page, "/docs/")'
             
         # Ensure page parameter is present for relevant functions
-        page_required_funcs = ['goto', 'click', 'fill', 'submit', 'execute_js', 'refresh', 'presskey']
+        page_required_funcs = [
+            'goto', 'click', 'fill', 'submit', 'execute_js', 'refresh', 'presskey',
+            'wait_for_element', 'wait_for_navigation', 'screenshot', 'get_cookies', 
+            'set_cookies', 'clear_cookies', 'set_headers', 'intercept_requests',
+            'bypass_csp', 'extract_forms', 'extract_links', 'set_input_value',
+            'get_page_source', 'simulate_user_interaction', 'set_geolocation',
+            'block_resources', 'modify_response', 'fill_form_with_payload',
+            'submit_form_and_get_response', 'analyze_network_traffic', 'bypass_waf',
+            'check_page_access'
+        ]
         for func in page_required_funcs:
             if func + '(' in tool_use and 'page' not in tool_use:
                 # Fix missing page parameter
@@ -866,8 +644,17 @@ class PlaywrightTools:
                     tool_use = tool_use[:last_paren] + tool_use[last_paren+1:]
         
         # Final validation check
-        valid_tools = ['goto(', 'click(', 'fill(', 'submit(', 'execute_js(', 'refresh(', 
-                       'presskey(', 'auth_needed(', 'get_user_input(', 'python_interpreter(', 'complete(']
+        valid_tools = [
+            'goto(', 'click(', 'fill(', 'submit(', 'execute_js(', 'refresh(', 'presskey(',
+            'auth_needed(', 'get_user_input(', 'python_interpreter(', 'complete(',
+            'wait_for_element(', 'wait_for_navigation(', 'screenshot(', 'get_cookies(',
+            'set_cookies(', 'clear_cookies(', 'set_headers(', 'intercept_requests(',
+            'get_intercepted_requests(', 'bypass_csp(', 'extract_forms(', 'extract_links(',
+            'set_input_value(', 'get_page_source(', 'simulate_user_interaction(',
+            'set_geolocation(', 'block_resources(', 'modify_response(', 'fill_form_with_payload(',
+            'submit_form_and_get_response(', 'analyze_network_traffic(', 'bypass_waf(',
+            'check_page_access('
+        ]
         
         if not any(valid_tool in tool_use for valid_tool in valid_tools):
             # If we still don't have a valid command, default to documentation
@@ -1006,132 +793,399 @@ class PlaywrightTools:
         except Exception as e:
             return f"Error getting content: {str(e)}"
 
+    def wait_for_element(self, page: Page, css_selector: str, timeout: int = 10000) -> str:
+        """Wait for element to appear and return page HTML"""
+        try:
+            page.wait_for_selector(css_selector, timeout=timeout)
+            self.security_actions_performed += 1
+            return page.inner_html("html")
+        except Exception as e:
+            return f"Element not found: {str(e)}"
 
-# Convenience function for creating PlaywrightTools instance
-def create_tools(debug: bool = False, use_llm: bool = True) -> PlaywrightTools:
-    """Create a PlaywrightTools instance for use with WebProxy.
-    
-    Args:
-        debug: Whether to enable debug output
-        use_llm: Whether to initialize LLM for advanced features
-        
-    Returns:
-        PlaywrightTools instance ready for use
-    """
-    return PlaywrightTools(debug=debug, use_llm=use_llm)
+    def wait_for_navigation(self, page: Page, timeout: int = 30000) -> str:
+        """Wait for navigation to complete"""
+        try:
+            page.wait_for_load_state('networkidle', timeout=timeout)
+            self.security_actions_performed += 1
+            return page.inner_html("html")
+        except Exception as e:
+            return f"Navigation timeout: {str(e)}"
 
+    def screenshot(self, page: Page, filename: Optional[str] = None, full_page: bool = True) -> str:
+        """Take screenshot for evidence collection"""
+        try:
+            if not filename:
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                filename = f"security_test_{timestamp}.png"
+            
+            page.screenshot(path=filename, full_page=full_page)
+            self.security_actions_performed += 1
+            return f"Screenshot saved: {filename}"
+        except Exception as e:
+            return f"Screenshot failed: {str(e)}"
 
-# Example usage function
-def demo_tools():
-    """
-    Demonstration of the PlaywrightTools capabilities with a mock page object.
-    """
-    print("🔧 PlaywrightTools Demo")
-    print("=" * 50)
-    
-    # Create tools instance
-    tools = create_tools(debug=True, use_llm=False)  # Disable LLM for demo
-    
-    # Mock page object for demonstration
-    class MockPage:
-        def __init__(self):
-            self.url = "https://example.com"
+    def get_cookies(self, page: Page) -> str:
+        """Extract all cookies for session analysis"""
+        try:
+            cookies = page.context.cookies()
+            cookie_data = []
+            for cookie in cookies:
+                cookie_info = {
+                    'name': cookie['name'],
+                    'value': cookie['value'],
+                    'domain': cookie['domain'],
+                    'path': cookie.get('path', '/'),
+                    'secure': cookie.get('secure', False),
+                    'httpOnly': cookie.get('httpOnly', False),
+                    'sameSite': cookie.get('sameSite', 'None')
+                }
+                cookie_data.append(cookie_info)
             
-        def goto(self, url):
-            print(f"Navigating to: {url}")
-            
-        def click(self, selector, timeout=None):
-            print(f"Clicking: {selector}")
-            
-        def fill(self, selector, value, timeout=None):
-            print(f"Filling {selector} with: {value}")
-            
-        def inner_html(self, selector):
-            return "<html><body>Mock HTML content</body></html>"
-            
-        def evaluate(self, js_code):
-            print(f"Executing JS: {js_code}")
-            return "Mock JS result"
-            
-        def reload(self):
-            print("Refreshing page")
-            
-        def locator(self, selector):
-            return MockLocator(selector)
-            
-        @property
-        def keyboard(self):
-            return MockKeyboard()
-    
-    class MockLocator:
-        def __init__(self, selector):
-            self.selector = selector
-            
-        def click(self):
-            print(f"Clicking locator: {self.selector}")
-    
-    class MockKeyboard:
-        def press(self, key):
-            print(f"Pressing key: {key}")
-    
-    mock_page = MockPage()
-    
-    # Test various tool functions
-    print("✅ Tools initialized")
-    
-    # Test navigation
-    result = tools.goto(mock_page, "/docs/")
-    print(f"📍 Navigation result: {len(result)} chars")
-    
-    # Test JavaScript execution
-    js_result = tools.execute_js(mock_page, "() => document.title")
-    print(f"🔧 JS execution result: {js_result}")
-    
-    # Test action extraction
-    action = "Navigate to the API documentation"
-    tool_command = tools.extract_tool_use(action)
-    print(f"🎯 Extracted tool command: {tool_command}")
-    
-    # Test tool execution
-    execution_result = tools.execute_tool(mock_page, tool_command)
-    print(f"⚡ Tool execution result: {len(str(execution_result))} chars")
-    
-    print("🔧 Demo completed!")
+            self.security_actions_performed += 1
+            return str(cookie_data)
+        except Exception as e:
+            return f"Cookie extraction failed: {str(e)}"
 
+    def set_cookies(self, page: Page, cookies: str) -> str:
+        """Set cookies for session testing"""
+        try:
+            import json
+            if isinstance(cookies, str):
+                cookie_list = json.loads(cookies)
+            else:
+                cookie_list = cookies
+            
+            page.context.add_cookies(cookie_list)
+            self.security_actions_performed += 1
+            return "Cookies set successfully"
+        except Exception as e:
+            return f"Cookie setting failed: {str(e)}"
 
-if __name__ == "__main__":
-    # Run demo if script is executed directly
-    demo_tools()
+    def clear_cookies(self, page: Page) -> str:
+        """Clear all cookies for fresh session testing"""
+        try:
+            page.context.clear_cookies()
+            self.security_actions_performed += 1
+            return "Cookies cleared"
+        except Exception as e:
+            return f"Cookie clearing failed: {str(e)}"
+
+    def set_headers(self, page: Page, headers: str) -> str:
+        """Set custom HTTP headers for testing"""
+        try:
+            import json
+            if isinstance(headers, str):
+                header_dict = json.loads(headers)
+            else:
+                header_dict = headers
+            
+            page.set_extra_http_headers(header_dict)
+            self.security_actions_performed += 1
+            return f"Headers set: {list(header_dict.keys())}"
+        except Exception as e:
+            return f"Header setting failed: {str(e)}"
+
+    def intercept_requests(self, page: Page, url_pattern: str = "*") -> str:
+        """Enable request interception for traffic analysis"""
+        try:
+            self.intercepted_requests = []
+            
+            def handle_request(request):
+                request_data = {
+                    'url': request.url,
+                    'method': request.method,
+                    'headers': dict(request.headers),
+                    'post_data': request.post_data
+                }
+                self.intercepted_requests.append(request_data)
+                request.continue_()
+            
+            page.route(url_pattern, handle_request)
+            self.security_actions_performed += 1
+            return f"Request interception enabled for pattern: {url_pattern}"
+        except Exception as e:
+            return f"Request interception failed: {str(e)}"
+
+    def get_intercepted_requests(self) -> str:
+        """Get intercepted requests for analysis"""
+        try:
+            if hasattr(self, 'intercepted_requests'):
+                return str(self.intercepted_requests)
+            return "No intercepted requests"
+        except Exception as e:
+            return f"Request retrieval failed: {str(e)}"
+
+    def bypass_csp(self, page: Page) -> str:
+        """Bypass Content Security Policy for XSS testing"""
+        try:
+            page.add_init_script("""
+                // Override CSP
+                if (window.HTMLElement) {
+                    HTMLElement.prototype.setAttribute = function(name, value) {
+                        if (name.toLowerCase() !== 'nonce') {
+                            return Element.prototype.setAttribute.call(this, name, value);
+                        }
+                    };
+                }
+            """)
+            self.security_actions_performed += 1
+            return "CSP bypass script injected"
+        except Exception as e:
+            return f"CSP bypass failed: {str(e)}"
+
+    def extract_forms(self, page: Page) -> str:
+        """Extract all forms for security testing"""
+        try:
+            forms_data = page.evaluate("""
+                () => {
+                    const forms = Array.from(document.forms);
+                    return forms.map(form => ({
+                        action: form.action,
+                        method: form.method,
+                        id: form.id,
+                        name: form.name,
+                        inputs: Array.from(form.elements).map(el => ({
+                            name: el.name,
+                            type: el.type,
+                            id: el.id,
+                            value: el.value,
+                            required: el.required,
+                            placeholder: el.placeholder
+                        }))
+                    }));
+                }
+            """)
+            self.security_actions_performed += 1
+            return str(forms_data)
+        except Exception as e:
+            return f"Form extraction failed: {str(e)}"
+
+    def extract_links(self, page: Page) -> str:
+        """Extract all links for crawling and testing"""
+        try:
+            links_data = page.evaluate("""
+                () => {
+                    const links = Array.from(document.links);
+                    return links.map(link => ({
+                        href: link.href,
+                        text: link.textContent.trim(),
+                        id: link.id,
+                        class: link.className
+                    }));
+                }
+            """)
+            self.security_actions_performed += 1
+            return str(links_data)
+        except Exception as e:
+            return f"Link extraction failed: {str(e)}"
+
+    def set_input_value(self, page: Page, selector: str, value: str) -> str:
+        """Set value for specific input element"""
+        try:
+            page.fill(selector, value)
+            self.security_actions_performed += 1
+            return f"Set value '{value}' for element '{selector}'"
+        except Exception as e:
+            return f"Input value setting failed: {str(e)}"
+
+    def get_page_source(self, page: Page) -> str:
+        """Get complete page source for analysis"""
+        try:
+            content = page.content()
+            self.security_actions_performed += 1
+            return content
+        except Exception as e:
+            return f"Page source retrieval failed: {str(e)}"
+
+    def simulate_user_interaction(self, page: Page, actions: str) -> str:
+        """Simulate complex user interactions for behavioral testing"""
+        try:
+            import json
+            action_list = json.loads(actions) if isinstance(actions, str) else actions
+            
+            results = []
+            for action in action_list:
+                action_type = action.get('type')
+                selector = action.get('selector')
+                value = action.get('value', '')
+                
+                if action_type == 'hover':
+                    page.hover(selector)
+                    results.append(f"Hovered over {selector}")
+                elif action_type == 'double_click':
+                    page.dblclick(selector)
+                    results.append(f"Double-clicked {selector}")
+                elif action_type == 'right_click':
+                    page.click(selector, button='right')
+                    results.append(f"Right-clicked {selector}")
+                elif action_type == 'select':
+                    page.select_option(selector, value)
+                    results.append(f"Selected {value} in {selector}")
+                elif action_type == 'drag':
+                    target = action.get('target')
+                    page.drag_and_drop(selector, target)
+                    results.append(f"Dragged {selector} to {target}")
+            
+            self.security_actions_performed += 1
+            return "; ".join(results)
+        except Exception as e:
+            return f"User interaction simulation failed: {str(e)}"
+
+    def set_geolocation(self, page: Page, latitude: float, longitude: float) -> str:
+        """Set geolocation for location-based security testing"""
+        try:
+            page.context.set_geolocation({"latitude": latitude, "longitude": longitude})
+            page.context.grant_permissions(["geolocation"])
+            self.security_actions_performed += 1
+            return f"Geolocation set to {latitude}, {longitude}"
+        except Exception as e:
+            return f"Geolocation setting failed: {str(e)}"
+
+    def block_resources(self, page: Page, resource_types: str) -> str:
+        """Block specific resource types for testing"""
+        try:
+            import json
+            types = json.loads(resource_types) if isinstance(resource_types, str) else resource_types
+            
+            def handle_route(route):
+                if route.request.resource_type in types:
+                    route.abort()
+                else:
+                    route.continue_()
+            
+            page.route("**/*", handle_route)
+            self.security_actions_performed += 1
+            return f"Blocked resources: {types}"
+        except Exception as e:
+            return f"Resource blocking failed: {str(e)}"
+
+    def modify_response(self, page: Page, url_pattern: str, new_body: str) -> str:
+        """Modify response content for security testing"""
+        try:
+            def handle_route(route):
+                if url_pattern in route.request.url:
+                    route.fulfill(body=new_body, content_type="text/html")
+                else:
+                    route.continue_()
+            
+            page.route("**/*", handle_route)
+            self.security_actions_performed += 1
+            return f"Response modification enabled for pattern: {url_pattern}"
+        except Exception as e:
+            return f"Response modification failed: {str(e)}"
+
+    def fill_form_with_payload(self, page: Page, form_selector: str, payload: str, field_name: str = None) -> str:
+        """Fill form field(s) with a specific payload for testing"""
+        try:
+            if field_name:
+                # Fill specific field
+                page.fill(f"{form_selector} input[name='{field_name}'], {form_selector} input[id='{field_name}']", payload)
+                result = f"Filled field '{field_name}' with payload"
+            else:
+                # Fill all text inputs in form
+                form_inputs = page.locator(f"{form_selector} input").all()
+                filled_count = 0
+                for input_elem in form_inputs:
+                    if input_elem.get_attribute('type') not in ['submit', 'button', 'hidden']:
+                        input_elem.fill(payload)
+                        filled_count += 1
+                result = f"Filled {filled_count} form fields with payload"
+            
+            self.security_actions_performed += 1
+            return result
+        except Exception as e:
+            return f"Form filling failed: {str(e)}"
+
+    def submit_form_and_get_response(self, page: Page, form_selector: str) -> str:
+        """Submit form and return the response content"""
+        try:
+            # Submit form
+            page.click(f"{form_selector} input[type='submit'], {form_selector} button[type='submit']")
+            page.wait_for_load_state('networkidle')
+            
+            # Return page content for analysis
+            content = page.content()
+            self.security_actions_performed += 1
+            return content
+        except Exception as e:
+            return f"Form submission failed: {str(e)}"
+
+    def analyze_network_traffic(self, page: Page) -> str:
+        """Analyze network traffic for security issues"""
+        try:
+            # Enable network monitoring
+            traffic_data = []
+            
+            def handle_response(response):
+                # Check for security issues in responses
+                headers = response.headers
+                issues = []
+                
+                # Check for missing security headers
+                if 'x-frame-options' not in headers:
+                    issues.append('Missing X-Frame-Options header')
+                if 'x-content-type-options' not in headers:
+                    issues.append('Missing X-Content-Type-Options header')
+                if 'strict-transport-security' not in headers:
+                    issues.append('Missing HSTS header')
+                if 'content-security-policy' not in headers:
+                    issues.append('Missing CSP header')
+                
+                # Check for sensitive data in URLs
+                if any(param in response.url.lower() for param in ['password', 'token', 'key', 'secret']):
+                    issues.append('Sensitive data in URL')
+                
+                if issues:
+                    traffic_data.append({
+                        'url': response.url,
+                        'status': response.status,
+                        'issues': issues
+                    })
+            
+            page.on('response', handle_response)
+            self.security_actions_performed += 1
+            return str(traffic_data)
+        except Exception as e:
+            return f"Network traffic analysis failed: {str(e)}"
+
+    def bypass_waf(self, page: Page) -> str:
+        """Configure browser for WAF bypass testing"""
+        try:
+            # Set headers that might bypass WAF
+            bypass_headers = {
+                'X-Originating-IP': '127.0.0.1',
+                'X-Forwarded-For': '127.0.0.1',
+                'X-Remote-IP': '127.0.0.1',
+                'X-Remote-Addr': '127.0.0.1',
+                'X-Real-IP': '127.0.0.1',
+                'X-Client-IP': '127.0.0.1',
+                'CF-Connecting-IP': '127.0.0.1'
+            }
+            
+            page.set_extra_http_headers(bypass_headers)
+            self.security_actions_performed += 1
+            return "WAF bypass headers configured"
+        except Exception as e:
+            return f"WAF bypass configuration failed: {str(e)}"
+
+    def check_page_access(self, page: Page, url: str) -> str:
+        """Navigate to URL and return access status information"""
+        try:
+            page.goto(url)
+            page.wait_for_load_state('networkidle')
+            
+            access_info = {
+                'final_url': page.url,
+                'title': page.title(),
+                'status_code': 200,  # Playwright doesn't easily expose status code after navigation
+                'contains_login': 'login' in page.url.lower() or 'signin' in page.url.lower(),
+                'contains_error': 'error' in page.content().lower() or 'forbidden' in page.content().lower(),
+                'redirected': page.url != url
+            }
+            
+            self.security_actions_performed += 1
+            return str(access_info)
+        except Exception as e:
+            return f"Page access check failed: {str(e)}"
+
     
-    # Test planner compatibility
-    print("\n" + "="*60)
-    print("🔗 PLANNER COMPATIBILITY TEST")
-    print("="*60)
-    
-    tools = create_tools(debug=True, use_llm=False)
-    
-    # Test YAML format from planner
-    sample_yaml_plan = """
-title: SQL Injection Vulnerability Assessment - Authentication Bypass
-description: Conduct systematic SQL injection testing on the login form at /auth/login using time-based and boolean-based payloads. Test username and password parameters with UNION-based queries, error-based injection, and authentication bypass techniques including ' OR '1'='1' variants.
-"""
-    
-    print("📋 Testing YAML plan input:")
-    print(f"Input: {sample_yaml_plan.strip()}")
-    
-    extracted_command = tools.extract_tool_use(sample_yaml_plan)
-    print(f"✅ Extracted command: {extracted_command}")
-    
-    # Test another plan type
-    api_plan = """
-title: API Authorization Testing - IDOR and Privilege Escalation  
-description: Perform comprehensive authorization testing on discovered API endpoints /api/users and /api/admin. Test for Insecure Direct Object References by manipulating user IDs.
-"""
-    
-    print(f"\n📋 Testing API plan input:")
-    print(f"Input: {api_plan.strip()}")
-    
-    extracted_command2 = tools.extract_tool_use(api_plan)
-    print(f"✅ Extracted command: {extracted_command2}")
-    
-    print("\n🎯 Compatibility test completed!") 
