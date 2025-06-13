@@ -22,7 +22,7 @@ def run_orchestration():
     """
     
     # Step 1: Base URL to be tested
-    base_url = "https://github.com/Avinier"  # Change this to your target URL
+    base_url = "https://dev.quantumsenses.com"  # Change this to your target URL
     
     print("=" * 80)
     print("SECURITY ANALYSIS ORCHESTRATION")
@@ -99,6 +99,11 @@ def run_orchestration():
                     for link_info in extractor.links:
                         link_url = link_info.get('url', '')
                         
+                        # Skip asset files (images, fonts, etc.)
+                        if link_url and _is_asset_file(link_url):
+                            print(f"  - Skipped (asset file): {link_url}")
+                            continue
+                        
                         # Only add links from the same domain
                         if link_url and _is_same_domain(base_url, link_url):
                             if link_url not in visited_urls and link_url not in urls_to_parse:
@@ -121,6 +126,11 @@ def run_orchestration():
                             print(f"  Debug: Found {len(fallback_links)} links via fallback method")
                             
                             for link_url in fallback_links:
+                                # Skip asset files (images, fonts, etc.)
+                                if link_url and _is_asset_file(link_url):
+                                    print(f"  - Skipped (asset file, fallback): {link_url}")
+                                    continue
+                                
                                 # Only add links from the same domain
                                 if link_url and _is_same_domain(base_url, link_url):
                                     if link_url not in visited_urls and link_url not in urls_to_parse:
@@ -181,6 +191,42 @@ def _is_same_domain(base_url: str, link_url: str) -> bool:
         return base_domain == link_domain
     except Exception:
         return False
+
+def _is_asset_file(url: str) -> bool:
+    """Check if a URL points to an asset file (images, fonts, stylesheets, etc.)."""
+    if not url or not isinstance(url, str):
+        return False
+    
+    # Remove query parameters and fragments for extension checking
+    parsed_url = urlparse(url)
+    path = parsed_url.path.lower()
+    
+    # Common asset file extensions to skip
+    asset_extensions = {
+        # Images
+        '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff', '.tif',
+        # Fonts
+        '.ttf', '.otf', '.woff', '.woff2', '.eot',
+        # Stylesheets (already handled in CSS extraction)
+        '.css',
+        # Client-side scripts (not useful for server-side pentesting)
+        '.js',
+        # Media files
+        '.mp3', '.mp4', '.wav', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ogg',
+        # Documents (might be interesting but usually not for crawling)
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        # Archives (might be interesting but usually not for crawling)
+        '.zip', '.tar', '.gz', '.rar', '.7z',
+        # Other common assets
+        '.swf', '.manifest', '.map'  # source maps
+    }
+    
+    # Check if the URL ends with any asset extension
+    for ext in asset_extensions:
+        if path.endswith(ext):
+            return True
+    
+    return False
 
 def _print_plans_for_url(url: str, plans: list):
     """Print security test plans for a URL in a structured format."""

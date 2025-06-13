@@ -35,6 +35,7 @@ class ToolCallResult:
     """Standardized result format for all VAPT functions"""
     success: bool
     tool_name: str
+    output: Any = None  # Raw output or response from tool execution
     vulnerabilities: List[Union[Dict, 'Vulnerability']] = None
     execution_time: float = 0.0
     error: str = ""
@@ -5539,6 +5540,305 @@ def _assess_context_disclosure_compliance_risk(vulnerabilities: List[Vulnerabili
     return "MEDIUM - General security compliance concerns"
 
 
+# ===== BUSINESS LOGIC TESTING TOOLS =====
+
+def business_logic_data_validation_test(url: str, parameters: List[str] = None, 
+                                      target_context: Union[PayloadTargetContext, Dict[str, Any]] = None,
+                                      test_mode: str = "comprehensive") -> ToolCallResult:
+    """
+    WSTG-BUSL-01: Test Business Logic Data Validation
+    Tests for logical data validation bypasses including SSN, date, currency manipulation
+    """
+    start_time = time.time()
+    
+    if isinstance(target_context, dict):
+        target_context = PayloadTargetContext.from_dict(target_context)
+    elif target_context is None:
+        target_context = PayloadTargetContext()
+    
+    logger = setup_logging()
+    session = create_session()
+    vulnerabilities = []
+    
+    if not parameters:
+        parameters = ['id', 'price', 'quantity', 'amount', 'ssn', 'date', 'user_id']
+    
+    # Business logic validation payloads
+    validation_payloads = {
+        'negative_values': ['-1', '-999', '-0.01', '-999999999'],
+        'zero_values': ['0', '0.00', '00000'],
+        'extreme_values': ['999999999', '2147483647', '9999999999999999'],
+        'invalid_dates': ['1900-01-01', '2100-12-31', '2024-02-30', '13/45/2024'],
+        'invalid_ssn': ['000-00-0000', '123-45-6789', '999-99-9999', '111-11-1111'],
+        'format_bypass': ['1.0e10', '1e+10', 'Infinity', 'NaN', 'null', 'undefined'],
+        'unicode_bypass': ['１', '２', '０', '＄', '％'],
+        'injection_attempts': ["'; DROP TABLE users; --", '<script>alert(1)</script>', '${7*7}']
+    }
+    
+    try:
+        for param in parameters:
+            logger.info(f"Testing business logic data validation for parameter: {param}")
+            
+            # Test different payload categories
+            for category, payloads in validation_payloads.items():
+                for payload in payloads:
+                    
+                    # Test GET request
+                    test_url = f"{url}?{param}={payload}"
+                    try:
+                        response = session.get(test_url, timeout=10)
+                        vuln = _detect_business_logic_validation_issue(
+                            response, payload, param, test_url, category, "GET", target_context
+                        )
+                        if vuln:
+                            vulnerabilities.append(vuln)
+                    except Exception as e:
+                        logger.debug(f"GET request failed for {test_url}: {e}")
+                    
+                    # Test POST request if supported
+                    if target_context.supports_post:
+                        try:
+                            response = session.post(url, data={param: payload}, timeout=10)
+                            vuln = _detect_business_logic_validation_issue(
+                                response, payload, param, url, category, "POST", target_context
+                            )
+                            if vuln:
+                                vulnerabilities.append(vuln)
+                        except Exception as e:
+                            logger.debug(f"POST request failed for {url}: {e}")
+                    
+                    time.sleep(0.1)  # Rate limiting
+        
+        execution_time = time.time() - start_time
+        business_impact = _assess_validation_business_impact(vulnerabilities, target_context)
+        compliance_risk = _assess_validation_compliance_risk(vulnerabilities, target_context)
+        
+        return ToolCallResult(
+            success=True,
+            tool_name="business_logic_data_validation_test",
+            vulnerabilities=vulnerabilities,
+            execution_time=execution_time,
+            business_impact=business_impact,
+            compliance_risk=compliance_risk,
+            metadata={
+                "tested_parameters": parameters,
+                "test_mode": test_mode,
+                "total_payloads": sum(len(payloads) for payloads in validation_payloads.values()),
+                "target_context": target_context.to_dict()
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Business logic data validation test failed: {e}")
+        return ToolCallResult(
+            success=False,
+            tool_name="business_logic_data_validation_test",
+            error=str(e),
+            execution_time=time.time() - start_time
+        )
+
+def workflow_circumvention_test(url: str, target_context: Union[PayloadTargetContext, Dict[str, Any]] = None,
+                               workflow_steps: List[str] = None) -> ToolCallResult:
+    """
+    WSTG-BUSL-06: Testing for the Circumvention of Work Flows
+    Tests workflow bypass and step skipping vulnerabilities
+    """
+    start_time = time.time()
+    
+    if isinstance(target_context, dict):
+        target_context = PayloadTargetContext.from_dict(target_context)
+    elif target_context is None:
+        target_context = PayloadTargetContext()
+    
+    logger = setup_logging()
+    session = create_session()
+    vulnerabilities = []
+    
+    if not workflow_steps:
+        workflow_steps = ['step1', 'step2', 'step3', 'complete']
+    
+    try:
+        # Test direct access to final steps
+        for step in workflow_steps[1:]:  # Skip first step
+            test_urls = [
+                f"{url}/{step}",
+                f"{url}?step={step}",
+                f"{url}?page={step}",
+                f"{url}?action={step}"
+            ]
+            
+            for test_url in test_urls:
+                try:
+                    response = session.get(test_url, timeout=10)
+                    
+                    # Check if step is accessible without prerequisites
+                    if response.status_code == 200 and 'error' not in response.text.lower():
+                        vuln = create_vulnerability(
+                            type="Workflow Circumvention",
+                            severity="High",
+                            evidence=f"Direct access to workflow step '{step}' without completing prerequisites",
+                            location="Workflow Control",
+                            url=test_url,
+                            parameter=step,
+                            business_impact="Users can bypass required workflow steps, potentially compromising business logic",
+                            remediation="Implement proper workflow state validation and session tracking"
+                        )
+                        vulnerabilities.append(vuln)
+                        
+                except Exception as e:
+                    logger.debug(f"Workflow step test failed for {test_url}: {e}")
+        
+        # Test parameter manipulation for workflow bypass
+        bypass_payloads = [
+            {'step': 'complete', 'status': 'approved'},
+            {'workflow_state': 'finished'},
+            {'bypass': 'true'},
+            {'admin_override': '1'},
+            {'force_complete': 'yes'}
+        ]
+        
+        for payload in bypass_payloads:
+            try:
+                if target_context.supports_post:
+                    response = session.post(url, data=payload, timeout=10)
+                else:
+                    params = '&'.join([f"{k}={v}" for k, v in payload.items()])
+                    test_url = f"{url}?{params}"
+                    response = session.get(test_url, timeout=10)
+                
+                if _indicates_workflow_bypass(response, payload):
+                    vuln = create_vulnerability(
+                        type="Workflow Parameter Bypass",
+                        severity="High",
+                        evidence=f"Workflow bypass achieved using parameters: {payload}",
+                        location="Workflow Control",
+                        url=url,
+                        payload=str(payload),
+                        business_impact="Business workflow can be manipulated through parameter injection",
+                        remediation="Validate workflow state server-side and implement proper access controls"
+                    )
+                    vulnerabilities.append(vuln)
+                    
+            except Exception as e:
+                logger.debug(f"Workflow bypass test failed: {e}")
+        
+        execution_time = time.time() - start_time
+        business_impact = _assess_workflow_business_impact(vulnerabilities, target_context)
+        compliance_risk = _assess_workflow_compliance_risk(vulnerabilities, target_context)
+        
+        return ToolCallResult(
+            success=True,
+            tool_name="workflow_circumvention_test",
+            vulnerabilities=vulnerabilities,
+            execution_time=execution_time,
+            business_impact=business_impact,
+            compliance_risk=compliance_risk,
+            metadata={
+                "workflow_steps": workflow_steps,
+                "target_context": target_context.to_dict()
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Workflow circumvention test failed: {e}")
+        return ToolCallResult(
+            success=False,
+            tool_name="workflow_circumvention_test",
+            error=str(e),
+            execution_time=time.time() - start_time
+        )
 
 
+def _detect_business_logic_validation_issue(response: requests.Response, payload: str, 
+                                           parameter: str, url: str, category: str, 
+                                           method: str, target_context: PayloadTargetContext) -> Optional[Vulnerability]:
+    """Detect business logic data validation issues"""
+    
+    indicators = []
+    severity = "Medium"
+    
+    # Check for successful acceptance of invalid data
+    if response.status_code in [200, 201, 202]:
+        indicators.append("invalid_data_accepted")
+        
+        # Check response content for validation bypass indicators
+        response_text = response.text.lower()
+        
+        if category == 'negative_values' and ('success' in response_text or 'completed' in response_text):
+            indicators.append("negative_value_processed")
+            severity = "High"
+        elif category == 'extreme_values' and ('overflow' in response_text or 'error' not in response_text):
+            indicators.append("extreme_value_processed")
+            severity = "High"
+        elif category == 'invalid_ssn' and 'invalid' not in response_text:
+            indicators.append("invalid_ssn_accepted")
+            severity = "Medium"
+        elif category == 'injection_attempts':
+            if 'syntax error' in response_text or 'mysql' in response_text or 'oracle' in response_text:
+                indicators.append("sql_injection_possible")
+                severity = "Critical"
+            elif '<script>' in response.text or 'alert(' in response.text:
+                indicators.append("xss_possible")
+                severity = "High"
+    
+    if indicators:
+        return create_vulnerability(
+            type=f"Business Logic Data Validation Bypass ({category})",
+            severity=severity,
+            evidence=f"Invalid data '{payload}' accepted for parameter '{parameter}' via {method}. Indicators: {indicators}",
+            location=f"{method} parameter",
+            parameter=parameter,
+            url=url,
+            payload=payload,
+            technique=category,
+            business_impact=f"Business logic can be bypassed using {category}, potentially allowing unauthorized operations",
+            remediation=f"Implement server-side validation for {parameter} parameter and reject {category}"
+        )
+    
+    return None
 
+def _indicates_workflow_bypass(response: requests.Response, payload: Dict) -> bool:
+    """Check if response indicates successful workflow bypass"""
+    
+    if response.status_code not in [200, 201, 202]:
+        return False
+    
+    response_text = response.text.lower()
+    bypass_indicators = [
+        'complete', 'success', 'approved', 'finished', 'done',
+        'congratulations', 'thank you', 'processed', 'confirmed'
+    ]
+    
+    return any(indicator in response_text for indicator in bypass_indicators)
+
+
+# Assessment functions for business logic
+def _assess_validation_business_impact(vulnerabilities: List[Vulnerability], target_context: PayloadTargetContext) -> str:
+    if not vulnerabilities:
+        return "MINIMAL - No business logic data validation issues detected"
+    
+    high_impact_vulns = [v for v in vulnerabilities if v.severity in ['Critical', 'High']]
+    
+    if high_impact_vulns:
+        return "CRITICAL - Business logic validation can be bypassed, allowing unauthorized operations"
+    
+    return "MODERATE - Some data validation weaknesses detected that could affect business operations"
+
+def _assess_validation_compliance_risk(vulnerabilities: List[Vulnerability], target_context: PayloadTargetContext) -> str:
+    if not vulnerabilities:
+        return "LOW - Business logic validation controls appear adequate"
+    
+    return "HIGH - Business logic validation failures may violate data integrity compliance requirements"
+
+
+def _assess_workflow_business_impact(vulnerabilities: List[Vulnerability], target_context: PayloadTargetContext) -> str:
+    if not vulnerabilities:
+        return "MINIMAL - Workflow controls appear secure"
+    
+    return "CRITICAL - Workflow circumvention allows bypassing critical business processes"
+
+def _assess_workflow_compliance_risk(vulnerabilities: List[Vulnerability], target_context: PayloadTargetContext) -> str:
+    if not vulnerabilities:
+        return "LOW - Workflow integrity maintained"
+    
+    return "CRITICAL - Workflow bypass violates business process compliance and audit requirements"

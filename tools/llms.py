@@ -17,7 +17,7 @@ class LLM:
     - Fireworks AI (DeepSeek, Qwen models)
     """
     
-    def __init__(self, desc: str):
+    def __init__(self, desc: str = "", **_ignored_kwargs):
         # Initialize Gemini client
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
         if self.gemini_api_key:
@@ -59,52 +59,36 @@ class LLM:
             raise Exception(f"[gemini_basic_call] Gemini basic call failed: {str(e)}")
 
     def gemini_tool_use(self, prompt: str, tools: List[Dict], model: str = "gemini-2.0-flash") -> Dict:
-        """
-        Call Gemini with function calling support.
-        
-        Args:
-            prompt: The user prompt
-            tools: List of function declarations in Gemini format, e.g.:
-                [
-                    {
-                        "name": "schedule_meeting",
-                        "description": "Schedules a meeting with specified attendees",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "attendees": {
-                                    "type": "array",
-                                    "items": {"type": "string"},
-                                    "description": "List of people attending"
-                                },
-                                "date": {
-                                    "type": "string",
-                                    "description": "Date of the meeting"
-                                }
-                            },
-                            "required": ["attendees", "date"]
-                        }
-                    }
-                ]
-            model: Gemini model to use
-            
-        Returns:
-            Dict with 'text', 'function_calls', and 'full_response' keys
-        """
+
         if not self.gemini_client:
             raise ValueError("Gemini client not initialized. Check GEMINI_API_KEY.")
         
         try:
-            # Validate tools format
+            # Validate tools format and normalize into function declarations list expected by Gemini
             if not isinstance(tools, list):
-                raise ValueError("Tools must be a list of function declarations")
-            
+                raise ValueError("Tools must be provided as a list of dictionaries")
+
+            normalized_funcs: List[Dict[str, Any]] = []
             for tool in tools:
-                if not isinstance(tool, dict) or "name" not in tool:
-                    raise ValueError("Each tool must be a dict with a 'name' field")
+                # Case 1: Tool already in the minimal FunctionDeclaration shape
+                if isinstance(tool, dict) and "name" in tool:
+                    normalized_funcs.append(tool)
+                # Case 2: Tool follows Fireworks/JSON schema {"type":"function", "function": {...}}
+                elif isinstance(tool, dict) and tool.get("type") == "function" and isinstance(tool.get("function"), dict):
+                    fn_def = tool["function"]
+                    if "name" not in fn_def:
+                        raise ValueError("Function entry missing 'name' field")
+                    normalized_funcs.append(fn_def)
+                else:
+                    raise ValueError("Invalid tool format supplied to gemini_tool_use")
             
-            # Create Tool object with function declarations
-            tool_object = types.Tool(function_declarations=tools)
+            # Enhance prompt to ensure single function call
+            enhanced_prompt = f"""{prompt}
+
+IMPORTANT: You must call exactly ONE function per response. Choose the most appropriate single function based on the current context and execute only that function. Do not call multiple functions in the same response."""
+            
+            # Create Tool object with the normalized function declarations
+            tool_object = types.Tool(function_declarations=normalized_funcs)
             
             # Create config with tools
             config = types.GenerateContentConfig(tools=[tool_object])
@@ -112,24 +96,24 @@ class LLM:
             # Generate content
             response = self.gemini_client.models.generate_content(
                 model=model,
-                contents=prompt,
+                contents=enhanced_prompt,
                 config=config
             )
             
-            # Extract function calls if any
-            function_calls = []
+            # Extract function calls if any - but return only the first one
+            function_call = None
             response_text = ""
             
             if response.candidates and len(response.candidates) > 0:
                 candidate = response.candidates[0]
                 if candidate.content and candidate.content.parts:
                     for part in candidate.content.parts:
-                        # Check for function call
-                        if hasattr(part, 'function_call') and part.function_call:
-                            function_calls.append({
+                        # Check for function call - take only the first one
+                        if hasattr(part, 'function_call') and part.function_call and function_call is None:
+                            function_call = {
                                 "name": part.function_call.name,
                                 "args": dict(part.function_call.args) if part.function_call.args else {}
-                            })
+                            }
                         # Check for text response
                         elif hasattr(part, 'text') and part.text:
                             response_text = part.text
@@ -140,7 +124,7 @@ class LLM:
             
             return {
                 "text": response_text,
-                "function_calls": function_calls,
+                "function_call": function_call,  # Single function call instead of array
                 "full_response": response
             }
             
@@ -202,7 +186,7 @@ class LLM:
 
     def gemini_reasoning_call(self, prompt: str, model: str = "gemini-2.5-pro-preview-05-06", 
                              include_thoughts: bool = True, thinking_budget: Optional[int] = None,
-                             temperature: float = 0.3) -> str:
+                             temperature: float = 0.3) -> Dict:
        
         if not self.gemini_client:
             raise ValueError("Gemini client not initialized. Check GEMINI_API_KEY.")
@@ -249,7 +233,12 @@ class LLM:
                             else:
                                 main_response = part.text
             
-            return main_response
+            # Return structured response instead of plain string so that caller can access
+            # both the generated answer and the associated chain-of-thought when requested.
+            return {
+                "text": main_response,
+                "thought_summary": thought_summary
+            }
                 
         except Exception as e:
             raise Exception(f"[gemini_reasoning_call] Gemini reasoning call failed: {str(e)}")

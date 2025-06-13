@@ -698,6 +698,32 @@ class PageDataExtractor:
         skip_prefixes = ['javascript:', 'mailto:', 'tel:', 'ftp:', 'file:', '#', 'data:']
         return not any(link.startswith(prefix) for prefix in skip_prefixes)
     
+    def _is_asset_file(self, url: str) -> bool:
+        """Check if a URL points to an asset file (images, fonts, stylesheets, etc.)."""
+        if not url or not isinstance(url, str):
+            return False
+        
+        # Remove query parameters and fragments for extension checking
+        parsed_url = urlparse(url)
+        path = parsed_url.path.lower()
+        
+        # Common asset file extensions to skip
+        asset_extensions = {
+            '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff', '.tif',
+            '.ttf', '.otf', '.woff', '.woff2', '.eot',
+            '.css','.js','.mp3', '.mp4', '.wav', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ogg',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.zip', '.tar', '.gz', '.rar', '.7z',
+            '.swf', '.manifest', '.map'
+        }
+        
+        # Check if the URL ends with any asset extension
+        for ext in asset_extensions:
+            if path.endswith(ext):
+                return True
+        
+        return False
+    
     def _make_absolute_url(self, url: str) -> str:
         """Convert relative URL to absolute URL."""
         if not url:
@@ -723,6 +749,10 @@ class PageDataExtractor:
         
         for link in discovered_links:
             if not link:
+                continue
+            
+            # Skip asset files (images, fonts, etc.) as they're not useful for penetration testing
+            if self._is_asset_file(link):
                 continue
                 
             # Categorize link for penetration testing
