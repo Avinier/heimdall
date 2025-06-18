@@ -682,6 +682,8 @@ class PayloadTargetContext:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'PayloadTargetContext':
         """Create PayloadTargetContext from dictionary"""
+        if data is None:
+            return cls()
         valid_fields = set(cls.__dataclass_fields__.keys())
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
         return cls(**filtered_data)
@@ -3750,8 +3752,6 @@ def _detect_context_aware_info_disclosure(response: requests.Response, url: str,
                 'mongodb': [r'mongodb.*error', r'collection.*not found', r'bson'],
                 'redis': [r'redis.*error', r'wrongtype.*operation', r'noauth.*authentication']
             }
-            
-            import re
             patterns = db_patterns.get(db, [])
             for pattern in patterns:
                 if re.search(pattern, response_text, re.IGNORECASE):
@@ -3813,21 +3813,6 @@ def _detect_context_aware_info_disclosure(response: requests.Response, url: str,
                     remediation='Remove sensitive information from API responses'
                 )
                 vulnerabilities.append(vuln)
-            
-            if db in db_patterns:
-                for pattern in db_patterns[db]:
-                    if re.search(pattern, response_text):
-                        vuln = create_vulnerability(
-                            vuln_type=f'{db.title()} Database Error Disclosure',
-                            severity='Medium',
-                            evidence=f'Database error message exposed in API response',
-                            url=url,
-                            technique='Error analysis',
-                            business_impact='Technical information leakage',
-                            remediation='Implement generic error messages'
-                        )
-                        vulnerabilities.append(vuln)
-                        break
         
         # Framework-specific sensitive data patterns
         if target_context.framework:
@@ -4156,8 +4141,10 @@ def jwt_vulnerability_test(token: str, target_context: Union[PayloadTargetContex
     vulnerabilities = []
     
     # Convert dict to PayloadTargetContext if needed
-
-    target_context = PayloadTargetContext.from_dict(target_context)
+    if isinstance(target_context, dict):
+        target_context = PayloadTargetContext.from_dict(target_context)
+    elif target_context is None:
+        target_context = PayloadTargetContext()
 
     
     try:
@@ -4171,8 +4158,22 @@ def jwt_vulnerability_test(token: str, target_context: Union[PayloadTargetContex
             )
         
         # Decode header and payload without verification
-        header = pyjwt.get_unverified_header(token)
-        payload = pyjwt.decode(token, options={"verify_signature": False})
+        # Manual decode since PyJWT API varies between versions
+        try:
+            parts = token.split('.')
+            if len(parts) != 3:
+                raise ValueError("Invalid JWT format - must have 3 parts")
+            
+            # Decode header
+            header_data = base64.urlsafe_b64decode(parts[0] + '==')
+            header = json.loads(header_data)
+            
+            # Decode payload
+            payload_data = base64.urlsafe_b64decode(parts[1] + '==')
+            payload = json.loads(payload_data)
+            
+        except (ValueError, json.JSONDecodeError, Exception) as e:
+            raise ValueError(f"Unable to decode JWT: {str(e)}")
         
         # Test algorithm confusion with context awareness
         if _test_jwt_algorithm_confusion(token, header, payload, target_context):
@@ -5674,7 +5675,7 @@ def workflow_circumvention_test(url: str, target_context: Union[PayloadTargetCon
                     # Check if step is accessible without prerequisites
                     if response.status_code == 200 and 'error' not in response.text.lower():
                         vuln = create_vulnerability(
-                            type="Workflow Circumvention",
+                            vuln_type="Workflow Circumvention",
                             severity="High",
                             evidence=f"Direct access to workflow step '{step}' without completing prerequisites",
                             location="Workflow Control",
@@ -5708,7 +5709,7 @@ def workflow_circumvention_test(url: str, target_context: Union[PayloadTargetCon
                 
                 if _indicates_workflow_bypass(response, payload):
                     vuln = create_vulnerability(
-                        type="Workflow Parameter Bypass",
+                        vuln_type="Workflow Parameter Bypass",
                         severity="High",
                         evidence=f"Workflow bypass achieved using parameters: {payload}",
                         location="Workflow Control",
@@ -5783,7 +5784,7 @@ def _detect_business_logic_validation_issue(response: requests.Response, payload
     
     if indicators:
         return create_vulnerability(
-            type=f"Business Logic Data Validation Bypass ({category})",
+            vuln_type=f"Business Logic Data Validation Bypass ({category})",
             severity=severity,
             evidence=f"Invalid data '{payload}' accepted for parameter '{parameter}' via {method}. Indicators: {indicators}",
             location=f"{method} parameter",

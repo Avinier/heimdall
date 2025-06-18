@@ -12,12 +12,12 @@ from tools.pagedata_extractor import PageDataExtractor
 from agents.planner import PlannerAgent
 from agents.actioner import ActionerAgent
 from agents.context_manager import ContextManagerAgent
+from agents.reporter import ReporterAgent
 
-# NEW IMPORTS FOR ENHANCED WORKFLOW
 from tools.llms import LLM
 from tools.tool_calls import ToolCallResult
 from tools.browser import PlaywrightTools
-import tools.tool_calls as tool_calls_module
+
 
 securitytools_fw_compatible = [
     # ===== SQL INJECTION TESTING =====
@@ -1970,6 +1970,7 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
     # INITIALIZE: Create web proxy and scanner
     base_url = "https://dev.quantumsenses.com"  # Change this to your target URL
     total_token_counter = 0
+    start_time = time.time()
     
     print("=" * 80)
     print("SECURITY ANALYSIS ORCHESTRATION - PHASE 3")
@@ -2014,6 +2015,30 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
             reasoning=False,
             temperature=0.2
         )
+        reporter = ReporterAgent(
+            desc="Comprehensive report generator",
+            api_type="gemini",
+            model_key="gemini-2.5-flash-preview-05-20",
+            reasoning=True,
+            temperature=0.3,
+        )
+
+        # Attach network traffic listener so that every HTTP response
+        def _capture_response(response):
+            try:
+                req = response.request
+                reporter.add_network_request(
+                    endpoint_path=urlparse(req.url).path,
+                    http_method=req.method,
+                    status_code=response.status
+                )
+            except Exception:
+                # Network capture failures should not interrupt the orchestration flow
+                pass
+
+        # Listen on the browser context so that it captures traffic from every page/tab
+        context.on("response", _capture_response)
+
         print("✓ All agents and tools initialized successfully")
         print()
     except Exception as e:
@@ -2021,6 +2046,7 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
         return
     
     all_findings = []
+    all_plans: list = []  # store all generated plans for reporting
     
     try:
         # OUTER LOOP (URL Processing)
@@ -2108,6 +2134,9 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
                 print("Generating security test plans...")
                 plans = planner.plan(raw_page_data)
                 print(f"✓ Generated {len(plans)} security test plans")
+                for p in plans:
+                    reporter.add_plan(p)
+                all_plans.extend(plans)
                 
                 # Display all plans to user
                 _print_plans_for_url(url, plans)
@@ -2296,7 +2325,7 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
                                         print(f"Executing single function: {function_call['name']} with args: {function_call['args']}")
                                         
                                         # Execute the single tool function and get ToolCallResult
-                                        tool_result = _execute_tool_function_call(function_call, page, browser_tools)
+                                        tool_result = _execute_tool_function_call(function_call, page, browser_tools, reporter)
                                         
                                         print(f"Tool Result: Success={tool_result.success}, Output Length={len(str(tool_result.output)) if tool_result.output else 0}")
                                         
@@ -2351,6 +2380,8 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
                                 # Analyze conversation for security findings
                                 findings = _analyze_conversation_for_findings(conversation_history)
                                 plan_findings.extend(findings)
+                                for f in findings:
+                                    reporter.add_finding(f)
                                 
                                 if findings:
                                     print(f"✓ Security findings detected: {len(findings)}")
@@ -2363,6 +2394,7 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
                             # Capture network traffic context (placeholder)
                             network_context = f"Network activity captured for iteration {iteration_counter + 1}"
                             conversation_history.append({"role": "user", "content": network_context})
+                            reporter.add_network_log(network_context)
                             
                         except Exception as e:
                             print(f"Error in action execution: {str(e)}")
@@ -2407,10 +2439,10 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
     
     if all_findings:
         # Categorize findings by business impact
-        critical_findings = [f for f in all_findings if any(term in f for term in ['🔴 CRITICAL', 'CATASTROPHIC', 'STRATEGIC ALERT'])]
-        high_findings = [f for f in all_findings if '🟠 HIGH' in f and f not in critical_findings]
-        medium_findings = [f for f in all_findings if '🟡 MEDIUM' in f and f not in critical_findings and f not in high_findings]
-        low_findings = [f for f in all_findings if '🟢 LOW' in f and f not in critical_findings and f not in high_findings and f not in medium_findings]
+        critical_findings = [f for f in all_findings if any(term in f.upper() for term in ['CRITICAL BUSINESS IMPACT', 'CATASTROPHIC', 'STRATEGIC ALERT', 'CRITICAL'])]
+        high_findings = [f for f in all_findings if 'HIGH BUSINESS IMPACT' in f.upper() and f not in critical_findings]
+        medium_findings = [f for f in all_findings if 'MEDIUM BUSINESS IMPACT' in f.upper() and f not in critical_findings and f not in high_findings]
+        low_findings = [f for f in all_findings if 'LOW BUSINESS IMPACT' in f.upper() and f not in critical_findings and f not in high_findings and f not in medium_findings]
         other_findings = [f for f in all_findings if f not in critical_findings and f not in high_findings and f not in medium_findings and f not in low_findings]
         
         print(f"\n📊 BUSINESS IMPACT ANALYSIS:")
@@ -2487,7 +2519,68 @@ def run_orchestration(expand_scope=True, max_iterations=10, keep_messages=12):
         print("  - Consider periodic reassessment schedule")
         print("  - Maintain continuous monitoring capabilities")
 
-def _execute_tool_function_call(function_call: dict, page, browser_tools: PlaywrightTools) -> ToolCallResult:
+    # FINAL REPORT GENERATION VIA ReporterAgent
+    try:
+        duration = time.time() - start_time
+        pdf_path = reporter.generate_report(
+            findings=[],             # use internal cache
+            duration_seconds=duration,
+            total_endpoints=len(visited_urls),
+            plans_executed=[],        # use internal cache
+            token_usage=total_token_counter,
+            network_logs=None,        # use internal cache
+            output_pdf="security_assessment_report.pdf",
+        )
+        print(f"\n📄 Comprehensive PDF report generated at: {pdf_path}\n")
+    except Exception as report_err:
+        print(f"⚠️  ReporterAgent failed to generate PDF: {report_err}")
+
+    try:
+        reporter.close()
+    except Exception:
+        pass
+
+    # --- Quick ReporterAgent summary outputs (goals verification) ---
+    try:
+        endpoints_scanned_reporter = reporter.total_endpoints_scanned()
+        overview_reporter = reporter.summary_overview()
+        key_findings_structured = reporter.overall_key_findings()
+
+        print("📊 ReporterAgent Quick Summary (Cached):")
+        print(f"   • Endpoints scanned (ReporterAgent): {endpoints_scanned_reporter}")
+        if overview_reporter:
+            print("   • Executive Overview:")
+            print(f"     {overview_reporter}")
+        if key_findings_structured:
+            print("   • Key Findings (top):")
+            for kf in key_findings_structured[:5]:
+                print(f"     - {kf.get('title')}: {kf.get('description')}")
+
+        # Testing methods summary (goal #1)
+        try:
+            test_methods = reporter.testing_methods_summary()
+            if test_methods:
+                print("   • Testing Methods Used:")
+                for tm in test_methods[:5]:
+                    print(f"     - {tm.get('name')}: {tm.get('summary')} (Tools: {tm.get('tools')})")
+        except Exception:
+            pass
+
+        # Codebase improvement recommendations (goal #2)
+        try:
+            code_recs = reporter.codebase_recommendations()
+            if code_recs:
+                print("   • Codebase Recommendations (top):")
+                for rec in code_recs[:5]:
+                    print(f"     - {rec.get('title')} (Impact: {rec.get('impact')}, Effort: {rec.get('effort_level')})")
+        except Exception:
+            pass
+    except Exception as _summary_err:
+        print(f"[WARN] Unable to print ReporterAgent quick summary: {_summary_err}")
+
+
+
+def _execute_tool_function_call(function_call: dict, page, browser_tools: PlaywrightTools, reporter=None) -> ToolCallResult:
     """
     Execute a function call from Gemini and return a ToolCallResult.
     This handles both security tools and browser tools.
@@ -2568,13 +2661,20 @@ def _execute_tool_function_call(function_call: dict, page, browser_tools: Playwr
                     else:
                         result = browser_func(**function_args)
                 
-                return ToolCallResult(
+                result_obj = ToolCallResult(
                     success=True,
                     tool_name=function_name,
                     output=result,
                     metadata={"result": result, "tool_type": "browser"},
                     execution_time=0.1
                 )
+                # If screenshot capture, add to reporter
+                if reporter is not None and function_name == 'screenshot' and result:
+                    try:
+                        reporter.add_screenshot(result if isinstance(result, str) else str(result))
+                    except Exception:
+                        pass
+                return result_obj
         
         # Handle security testing tools
         elif function_name in ['sql_injection_test', 'xss_test', 'nmap_scan', 'enterprise_port_scan',
@@ -2589,9 +2689,20 @@ def _execute_tool_function_call(function_call: dict, page, browser_tools: Playwr
                 
                 # tool_calls functions already return ToolCallResult objects
                 if isinstance(result, ToolCallResult):
+                    # Record vulnerability finding early if any textual output exists
+                    if reporter is not None and result.success and result.output:
+                        try:
+                            reporter.add_finding(str(result.output)[:500])
+                        except Exception:
+                            pass
                     return result
                 else:
                     # Fallback if function doesn't return ToolCallResult
+                    if reporter is not None and result:
+                        try:
+                            reporter.add_finding(str(result)[:500])
+                        except Exception:
+                            pass
                     return ToolCallResult(
                         success=True,
                         tool_name=function_name,
@@ -2629,10 +2740,7 @@ def _execute_tool_function_call(function_call: dict, page, browser_tools: Playwr
         )
 
 def _analyze_conversation_for_findings(conversation_history) -> list:
-    """
-    Enhanced analysis of conversation history to detect security findings with business context.
-    Returns a list of detected security issues with risk assessment.
-    """
+
     findings = []
     
     # Convert conversation to text for analysis
@@ -2686,13 +2794,13 @@ def _analyze_conversation_for_findings(conversation_history) -> list:
                 # Add business impact context if available
                 if business_impact_context:
                     if any(term in business_impact_context.upper() for term in ['CRITICAL', 'CATASTROPHIC']):
-                        finding += " [🔴 CRITICAL BUSINESS IMPACT]"
+                        finding += " [CRITICAL BUSINESS IMPACT]"
                     elif 'HIGH' in business_impact_context.upper():
-                        finding += " [🟠 HIGH BUSINESS IMPACT]"
+                        finding += " [HIGH BUSINESS IMPACT]"
                     elif 'MEDIUM' in business_impact_context.upper():
-                        finding += " [🟡 MEDIUM BUSINESS IMPACT]"
+                        finding += " [MEDIUM BUSINESS IMPACT]"
                     elif 'LOW' in business_impact_context.upper():
-                        finding += " [🟢 LOW BUSINESS IMPACT]"
+                        finding += " [LOW BUSINESS IMPACT]"
                 
                 # Add attack complexity context
                 if attack_complexity_context:
@@ -2705,6 +2813,7 @@ def _analyze_conversation_for_findings(conversation_history) -> list:
                 if compliance_context:
                     finding += f" [Compliance Risk: {compliance_context[:50]}...]"
                 
+                # Append the finalized finding (emoji handling removed)
                 findings.append(finding)
                 break  # Only add each vulnerability type once per conversation
     
@@ -2726,7 +2835,7 @@ def _analyze_conversation_for_findings(conversation_history) -> list:
     # Add summary of strategic findings if any critical issues found
     critical_findings = [f for f in findings if any(term in f for term in ['CRITICAL', 'Financial', 'Data Breach', 'Compliance'])]
     if critical_findings:
-        findings.append(f"⚠️  STRATEGIC ALERT: {len(critical_findings)} critical business-impact vulnerabilities detected requiring immediate executive attention")
+        findings.append(f"STRATEGIC ALERT: {len(critical_findings)} critical business-impact vulnerabilities detected requiring immediate executive attention")
     
     return findings
 

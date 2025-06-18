@@ -118,12 +118,10 @@ class ActionerAgent:
     specific tool commands for security testing using LLM analysis.
     """
     
-    def __init__(self, desc: str, 
-                 api_type: str = "gemini",
-                 model: str = "gemini-2.0-flash",
-                 fireworks_model_key: str = "deepseek-v3",
-                 temperature: float = 0.3,
+    def __init__(self, desc: str, api_type: str = "gemini", model: str = "gemini-2.0-flash",
+                 fireworks_model_key: str = "deepseek-v3", temperature: float = 0.3,
                  reasoning_config: Optional[Dict] = None):
+        
         self.llm = LLM(desc="gemini-2.0-flash for security testing execution")
         self.actions_performed = 0
         self.min_actions_required = 5

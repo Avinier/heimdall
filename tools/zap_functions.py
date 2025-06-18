@@ -12,14 +12,14 @@ from dataclasses import dataclass
 # Import core structures from main module
 try:
     from .tool_calls import (
-        VAPTResult, Vulnerability, create_vulnerability, 
-        create_session, VAPT_CONFIG
+        ToolCallResult, Vulnerability, create_vulnerability, 
+        create_session
     )
 except ImportError:
     # Fallback for direct import
     from tool_calls import (
-        VAPTResult, Vulnerability, create_vulnerability,
-        create_session, VAPT_CONFIG
+        ToolCallResult, Vulnerability, create_vulnerability,
+        create_session
     )
 
 # ZAP-specific imports
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # ===== CORE ZAP FUNCTIONS =====
 
-def zap_passive_scan(target_url: str, spider_minutes: int = 2) -> VAPTResult:
+def zap_passive_scan(target_url: str, spider_minutes: int = 2) -> ToolCallResult:
     """
     Execute OWASP ZAP passive scan with spidering
     
@@ -39,7 +39,7 @@ def zap_passive_scan(target_url: str, spider_minutes: int = 2) -> VAPTResult:
         spider_minutes: Minutes to spend spidering
     
     Returns:
-        VAPTResult with ZAP passive scan findings
+        ToolCallResult with ZAP passive scan findings
     """
     start_time = time.time()
     vulnerabilities = []
@@ -52,7 +52,7 @@ def zap_passive_scan(target_url: str, spider_minutes: int = 2) -> VAPTResult:
         try:
             zap.core.version
         except Exception as e:
-            return VAPTResult(
+            return ToolCallResult(
                 success=False,
                 tool_name="ZAP Passive Scan",
                 error=f"Cannot connect to ZAP proxy on 127.0.0.1:8080. Ensure ZAP is running. Error: {str(e)}",
@@ -107,7 +107,7 @@ def zap_passive_scan(target_url: str, spider_minutes: int = 2) -> VAPTResult:
         
         execution_time = time.time() - start_time
         
-        return VAPTResult(
+        return ToolCallResult(
             success=True,
             tool_name="ZAP Passive Scan",
             vulnerabilities=vulnerabilities,
@@ -125,7 +125,7 @@ def zap_passive_scan(target_url: str, spider_minutes: int = 2) -> VAPTResult:
         )
         
     except Exception as e:
-        return VAPTResult(
+        return ToolCallResult(
             success=False,
             tool_name="ZAP Passive Scan",
             error=f"ZAP scan failed: {str(e)}",
@@ -133,7 +133,7 @@ def zap_passive_scan(target_url: str, spider_minutes: int = 2) -> VAPTResult:
         )
 
 def zap_active_scan(target_url: str, scan_policy: str = "Default Policy", 
-                   max_scan_time: int = 10) -> VAPTResult:
+                   max_scan_time: int = 10) -> ToolCallResult:
     """
     Execute OWASP ZAP active vulnerability scan
     
@@ -143,7 +143,7 @@ def zap_active_scan(target_url: str, scan_policy: str = "Default Policy",
         max_scan_time: Maximum scan time in minutes
     
     Returns:
-        VAPTResult with ZAP active scan findings
+        ToolCallResult with ZAP active scan findings
     """
     start_time = time.time()
     vulnerabilities = []
@@ -155,7 +155,7 @@ def zap_active_scan(target_url: str, scan_policy: str = "Default Policy",
         try:
             zap.core.version
         except Exception as e:
-            return VAPTResult(
+            return ToolCallResult(
                 success=False,
                 tool_name="ZAP Active Scan",
                 error=f"Cannot connect to ZAP: {str(e)}",
@@ -212,7 +212,7 @@ def zap_active_scan(target_url: str, scan_policy: str = "Default Policy",
         
         execution_time = time.time() - start_time
         
-        return VAPTResult(
+        return ToolCallResult(
             success=True,
             tool_name="ZAP Active Scan",
             vulnerabilities=vulnerabilities,
@@ -230,7 +230,7 @@ def zap_active_scan(target_url: str, scan_policy: str = "Default Policy",
         )
         
     except Exception as e:
-        return VAPTResult(
+        return ToolCallResult(
             success=False,
             tool_name="ZAP Active Scan",
             error=f"ZAP active scan failed: {str(e)}",
@@ -238,7 +238,7 @@ def zap_active_scan(target_url: str, scan_policy: str = "Default Policy",
         )
 
 def zap_authenticated_scan(target_url: str, auth_config: Dict[str, str], 
-                          scan_type: str = "both") -> VAPTResult:
+                          scan_type: str = "both") -> ToolCallResult:
     """
     Execute authenticated ZAP scan with session management
     
@@ -248,7 +248,7 @@ def zap_authenticated_scan(target_url: str, auth_config: Dict[str, str],
         scan_type: "passive", "active", or "both"
     
     Returns:
-        VAPTResult with authenticated scan findings
+        ToolCallResult with authenticated scan findings
     """
     start_time = time.time()
     vulnerabilities = []
@@ -320,7 +320,7 @@ def zap_authenticated_scan(target_url: str, auth_config: Dict[str, str],
         
         execution_time = time.time() - start_time
         
-        return VAPTResult(
+        return ToolCallResult(
             success=True,
             tool_name="ZAP Authenticated Scan",
             vulnerabilities=vulnerabilities,
@@ -337,14 +337,14 @@ def zap_authenticated_scan(target_url: str, auth_config: Dict[str, str],
         )
         
     except Exception as e:
-        return VAPTResult(
+        return ToolCallResult(
             success=False,
             tool_name="ZAP Authenticated Scan",
             error=f"Authenticated scan failed: {str(e)}",
             execution_time=time.time() - start_time
         )
 
-def zap_ajax_spider_scan(target_url: str, max_duration: int = 5) -> VAPTResult:
+def zap_ajax_spider_scan(target_url: str, max_duration: int = 5) -> ToolCallResult:
     """
     Execute OWASP ZAP AJAX Spider for JavaScript-heavy applications
     
@@ -353,7 +353,7 @@ def zap_ajax_spider_scan(target_url: str, max_duration: int = 5) -> VAPTResult:
         max_duration: Maximum duration in minutes
     
     Returns:
-        VAPTResult with AJAX spider findings
+        ToolCallResult with AJAX spider findings
     """
     start_time = time.time()
     vulnerabilities = []
@@ -365,7 +365,7 @@ def zap_ajax_spider_scan(target_url: str, max_duration: int = 5) -> VAPTResult:
         try:
             zap.core.version
         except Exception as e:
-            return VAPTResult(
+            return ToolCallResult(
                 success=False,
                 tool_name="ZAP AJAX Spider",
                 error=f"Cannot connect to ZAP: {str(e)}",
@@ -409,7 +409,7 @@ def zap_ajax_spider_scan(target_url: str, max_duration: int = 5) -> VAPTResult:
         
         execution_time = time.time() - start_time
         
-        return VAPTResult(
+        return ToolCallResult(
             success=True,
             tool_name="ZAP AJAX Spider",
             vulnerabilities=vulnerabilities,
@@ -426,7 +426,7 @@ def zap_ajax_spider_scan(target_url: str, max_duration: int = 5) -> VAPTResult:
         )
         
     except Exception as e:
-        return VAPTResult(
+        return ToolCallResult(
             success=False,
             tool_name="ZAP AJAX Spider",
             error=f"AJAX spider failed: {str(e)}",
@@ -434,7 +434,7 @@ def zap_ajax_spider_scan(target_url: str, max_duration: int = 5) -> VAPTResult:
         )
 
 def zap_comprehensive_scan(target_url: str, auth_config: Dict[str, str] = None,
-                          include_active: bool = True) -> VAPTResult:
+                          include_active: bool = True) -> ToolCallResult:
     """
     Execute comprehensive ZAP scan combining multiple techniques
     
@@ -444,7 +444,7 @@ def zap_comprehensive_scan(target_url: str, auth_config: Dict[str, str] = None,
         include_active: Whether to include active scanning
     
     Returns:
-        VAPTResult with comprehensive scan findings
+        ToolCallResult with comprehensive scan findings
     """
     start_time = time.time()
     all_vulnerabilities = []
@@ -477,7 +477,7 @@ def zap_comprehensive_scan(target_url: str, auth_config: Dict[str, str] = None,
         
         execution_time = time.time() - start_time
         
-        return VAPTResult(
+        return ToolCallResult(
             success=True,
             tool_name="ZAP Comprehensive Scan",
             vulnerabilities=unique_vulnerabilities,
@@ -496,7 +496,7 @@ def zap_comprehensive_scan(target_url: str, auth_config: Dict[str, str] = None,
         )
         
     except Exception as e:
-        return VAPTResult(
+        return ToolCallResult(
             success=False,
             tool_name="ZAP Comprehensive Scan",
             error=f"Comprehensive scan failed: {str(e)}",
@@ -504,7 +504,7 @@ def zap_comprehensive_scan(target_url: str, auth_config: Dict[str, str] = None,
         )
 
 def zap_enterprise_scan(target_url: str, auth_config: Dict[str, str] = None,
-                       scan_config: Dict[str, Any] = None) -> VAPTResult:
+                       scan_config: Dict[str, Any] = None) -> ToolCallResult:
     """
     Execute enterprise-grade ZAP scan with advanced analysis
     
@@ -514,7 +514,7 @@ def zap_enterprise_scan(target_url: str, auth_config: Dict[str, str] = None,
         scan_config: Advanced scan configuration
     
     Returns:
-        VAPTResult with enterprise-grade findings
+        ToolCallResult with enterprise-grade findings
     """
     start_time = time.time()
     all_vulnerabilities = []
@@ -590,7 +590,7 @@ def zap_enterprise_scan(target_url: str, auth_config: Dict[str, str] = None,
         else:
             business_impact = f"ENTERPRISE ASSESSMENT - {len(unique_vulnerabilities)} security issues documented"
         
-        return VAPTResult(
+        return ToolCallResult(
             success=True,
             tool_name="ZAP Enterprise Scan",
             vulnerabilities=unique_vulnerabilities,
@@ -611,7 +611,7 @@ def zap_enterprise_scan(target_url: str, auth_config: Dict[str, str] = None,
         )
         
     except Exception as e:
-        return VAPTResult(
+        return ToolCallResult(
             success=False,
             tool_name="ZAP Enterprise Scan",
             error=f"Enterprise scan failed: {str(e)}",
