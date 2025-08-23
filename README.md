@@ -4,7 +4,7 @@
 
 Project Heimdall is a sophisticated, AI-powered penetration testing framework that integrates multiple security tools and automates vulnerability assessment through intelligent test plan generation and execution.
 
-## 🏗️ Architecture
+## 🏗️ Architecture of the system
 
 ```
 ┌─────────────────────────────────────────────────────────┐
