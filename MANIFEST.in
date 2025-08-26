@@ -1,0 +1,9 @@
+include LICENSE
+include README.md
+include pyproject.toml
+include src/heimdall/py.typed
+recursive-include src/heimdall *.py
+recursive-exclude tests *
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store
